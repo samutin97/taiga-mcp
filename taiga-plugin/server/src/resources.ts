@@ -1,0 +1,90 @@
+import { z } from "zod";
+import type { LookupKind } from "./schema-cache.js";
+import type { ResourceName } from "./projections.js";
+
+export interface ResourceDef {
+  name: ResourceName;
+  path: string;
+  label: string;
+  /** Key used by /resolver to turn a #ref into an id. */
+  resolverKey?: string;
+  hasRef: boolean;
+  listFilters: z.ZodRawShape;
+  createFields: z.ZodRawShape;
+  updateFields: z.ZodRawShape;
+  /** Fields whose human-readable value must be resolved to a numeric id. */
+  lookups: { field: string; kind: LookupKind }[];
+  supportsAppend: boolean;
+  /**
+   * Fields Taiga returns as bare numeric ids, with the lookup table each one
+   * resolves against. Projections need these maps to show names instead of ids.
+   */
+  labels?: { map: "priority" | "severity" | "type" | "member"; kind: LookupKind }[];
+}
+
+const tagsField = z
+  .array(z.string())
+  .optional()
+  .describe("Tag names.");
+
+export const USER_STORY: ResourceDef = {
+  name: "userstory",
+  path: "/userstories",
+  label: "user story",
+  resolverKey: "us",
+  hasRef: true,
+  listFilters: {
+    sprint: z.string().optional().describe("Sprint (milestone) name to filter by."),
+    status: z.string().optional().describe("Status name, e.g. 'In progress'."),
+    assigned_to: z.string().optional().describe("Assignee full name."),
+    epic: z.string().optional().describe("Epic subject to filter by."),
+    // Verified live: Taiga's `tags` filter is OR (union), not AND — the brief's
+    // draft description claimed "all", which is not what the API does.
+    tags: z.array(z.string()).optional().describe("Stories carrying any of these tags."),
+    is_closed: z.boolean().optional(),
+  },
+  createFields: {
+    subject: z.string().describe("Story title."),
+    description: z.string().optional(),
+    status: z.string().optional().describe("Status name; defaults to the project's first status."),
+    assigned_to: z.string().optional().describe("Assignee full name."),
+    sprint: z.string().optional().describe("Sprint (milestone) name."),
+    // Verified live: Taiga stores points as a per-role map, not a scalar —
+    // sending this value straight through crashes the server. The factory
+    // resolves it to the project's primary estimation role; see resolvePoints.
+    points: z
+      .string()
+      .optional()
+      .describe(
+        "Story points value, e.g. '5'. Applied to the project's primary " +
+          "estimation role; other roles are left unestimated.",
+      ),
+    tags: tagsField,
+    due_date: z.string().optional().describe("ISO date, e.g. 2026-09-30."),
+  },
+  updateFields: {
+    subject: z.string().optional(),
+    description: z.string().optional(),
+    status: z.string().optional(),
+    assigned_to: z.string().optional(),
+    sprint: z.string().optional(),
+    points: z
+      .string()
+      .optional()
+      .describe(
+        "Story points value, e.g. '5'. Applied to the project's primary " +
+          "estimation role; other roles keep their current estimate.",
+      ),
+    tags: tagsField,
+    due_date: z.string().optional(),
+    is_blocked: z.boolean().optional(),
+    blocked_note: z.string().optional(),
+  },
+  lookups: [
+    { field: "status", kind: "userstory-status" },
+    { field: "assigned_to", kind: "member" },
+  ],
+  supportsAppend: true,
+};
+
+export const RESOURCES: ResourceDef[] = [USER_STORY];

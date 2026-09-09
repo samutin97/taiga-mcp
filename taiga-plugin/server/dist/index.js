@@ -22042,11 +22042,321 @@ function registerProjectTools(server, ctx) {
   );
 }
 
+// src/resources.ts
+var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
+var USER_STORY = {
+  name: "userstory",
+  path: "/userstories",
+  label: "user story",
+  resolverKey: "us",
+  hasRef: true,
+  listFilters: {
+    sprint: external_exports.string().optional().describe("Sprint (milestone) name to filter by."),
+    status: external_exports.string().optional().describe("Status name, e.g. 'In progress'."),
+    assigned_to: external_exports.string().optional().describe("Assignee full name."),
+    epic: external_exports.string().optional().describe("Epic subject to filter by."),
+    // Verified live: Taiga's `tags` filter is OR (union), not AND — the brief's
+    // draft description claimed "all", which is not what the API does.
+    tags: external_exports.array(external_exports.string()).optional().describe("Stories carrying any of these tags."),
+    is_closed: external_exports.boolean().optional()
+  },
+  createFields: {
+    subject: external_exports.string().describe("Story title."),
+    description: external_exports.string().optional(),
+    status: external_exports.string().optional().describe("Status name; defaults to the project's first status."),
+    assigned_to: external_exports.string().optional().describe("Assignee full name."),
+    sprint: external_exports.string().optional().describe("Sprint (milestone) name."),
+    // Verified live: Taiga stores points as a per-role map, not a scalar —
+    // sending this value straight through crashes the server. The factory
+    // resolves it to the project's primary estimation role; see resolvePoints.
+    points: external_exports.string().optional().describe(
+      "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles are left unestimated."
+    ),
+    tags: tagsField,
+    due_date: external_exports.string().optional().describe("ISO date, e.g. 2026-09-30.")
+  },
+  updateFields: {
+    subject: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    sprint: external_exports.string().optional(),
+    points: external_exports.string().optional().describe(
+      "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles keep their current estimate."
+    ),
+    tags: tagsField,
+    due_date: external_exports.string().optional(),
+    is_blocked: external_exports.boolean().optional(),
+    blocked_note: external_exports.string().optional()
+  },
+  lookups: [
+    { field: "status", kind: "userstory-status" },
+    { field: "assigned_to", kind: "member" }
+  ],
+  supportsAppend: true
+};
+var RESOURCES = [USER_STORY];
+
+// src/tools/crud.ts
+var projectRef2 = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
+async function buildLabels(ctx, def, projectId) {
+  const labels = {};
+  for (const { map, kind } of def.labels ?? []) {
+    labels[map] = await ctx.cache.labelMap(projectId, kind);
+  }
+  return labels;
+}
+async function locate(ctx, def, projectId, args) {
+  if (typeof args.id === "number") return args.id;
+  if (typeof args.ref === "number" && def.resolverKey) {
+    return ctx.cache.resolveRef(projectId, def.resolverKey, args.ref);
+  }
+  if (args.slug) {
+    const found = await ctx.client.list(def.path, {
+      project: projectId
+    });
+    const match = found.items.find((item) => item.slug === args.slug);
+    if (!match) {
+      throw new TaigaError(`No ${def.label} with slug "${args.slug}" in this project.`, {
+        hint: `Available: ${found.items.map((i) => i.slug).join(", ")}`
+      });
+    }
+    return match.id;
+  }
+  throw new TaigaError(
+    `Specify which ${def.label} to act on.`,
+    { hint: def.hasRef ? "Pass `ref` (the #number) or `id`." : "Pass `id`." }
+  );
+}
+async function resolveFields(ctx, def, projectId, input) {
+  const output = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (value === void 0) continue;
+    const lookup = def.lookups.find((entry) => entry.field === key);
+    if (lookup && (typeof value === "string" || typeof value === "number")) {
+      output[key] = await ctx.cache.resolveLookup(projectId, lookup.kind, value);
+    } else {
+      output[key] = value;
+    }
+  }
+  return output;
+}
+async function resolveSprint(ctx, projectId, name) {
+  const milestones = await ctx.client.list("/milestones", {
+    project: projectId
+  });
+  const match = milestones.items.find(
+    (m) => m.name.toLowerCase() === name.trim().toLowerCase()
+  );
+  if (!match) {
+    throw new TaigaError(`"${name}" is not a sprint in this project.`, {
+      hint: `Sprints: ${milestones.items.map((m) => m.name).join(", ")}`
+    });
+  }
+  return match.id;
+}
+async function resolveEpic(ctx, projectId, subject) {
+  const epics = await ctx.client.list("/epics", {
+    project: projectId
+  });
+  const match = epics.items.find(
+    (e) => e.subject.toLowerCase() === subject.trim().toLowerCase()
+  );
+  if (!match) {
+    throw new TaigaError(`"${subject}" is not an epic in this project.`, {
+      hint: `Epics: ${epics.items.map((e) => e.subject).join(", ")}`
+    });
+  }
+  return match.id;
+}
+async function resolvePoints(ctx, projectId, value) {
+  const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
+  const roles = await ctx.client.list(
+    "/roles",
+    { project: projectId }
+  );
+  const primary = roles.items.filter((role) => role.computable).sort((a, b) => a.order - b.order)[0];
+  if (!primary) {
+    throw new TaigaError("This project has no computable role to hold story points.");
+  }
+  return { [primary.id]: pointsId };
+}
+function registerCrudTools(server, ctx, def) {
+  const idArgs = {
+    id: external_exports.number().optional().describe(`Internal ${def.label} id.`),
+    ...def.hasRef ? { ref: external_exports.number().optional().describe(`The #number shown in Taiga.`) } : {},
+    ...def.name === "wiki" || def.name === "sprint" ? { slug: external_exports.string().optional().describe("Slug.") } : {}
+  };
+  server.tool(
+    `taiga_${def.name}_list`,
+    `List ${def.label} items in a Taiga project. Returns a slim projection by default.`,
+    {
+      project: projectRef2,
+      ...def.listFilters,
+      limit: external_exports.number().max(200).optional().describe("Max items to return. Default 50."),
+      page: external_exports.number().optional().describe("1-based page number."),
+      fields: FIELDS_SCHEMA
+    },
+    guard(async (args) => {
+      const { project: ref, fields, limit, page, ...filters } = args;
+      const projectId = await ctx.cache.resolveProject(ref);
+      const params = {
+        project: projectId,
+        page,
+        page_size: limit ?? 50
+      };
+      for (const [key, value] of Object.entries(filters)) {
+        if (value === void 0) continue;
+        if (key === "sprint") {
+          params.milestone = await resolveSprint(ctx, projectId, String(value));
+        } else if (key === "epic") {
+          params.epic = await resolveEpic(ctx, projectId, String(value));
+        } else if (key === "tags") {
+          params.tags = value.join(",");
+        } else {
+          const lookup = def.lookups.find((entry) => entry.field === key);
+          params[key] = lookup ? await ctx.cache.resolveLookup(projectId, lookup.kind, value) : value;
+        }
+      }
+      const result = await ctx.client.list(def.path, params);
+      const labels = await buildLabels(ctx, def, projectId);
+      return ok({
+        total: result.total,
+        page: result.page,
+        has_more: result.hasMore,
+        items: projectMany(def.name, result.items, asFieldMode(fields), labels)
+      });
+    })
+  );
+  server.tool(
+    `taiga_${def.name}_get`,
+    `Get one ${def.label} by its #ref number or internal id.`,
+    { project: projectRef2, ...idArgs, fields: FIELDS_SCHEMA },
+    guard(async (args) => {
+      const a = args;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locate(ctx, def, projectId, a);
+      const raw = await ctx.client.get(`${def.path}/${id}`);
+      const labels = await buildLabels(ctx, def, projectId);
+      return ok(project(def.name, raw, asFieldMode(a.fields), labels));
+    })
+  );
+  server.tool(
+    `taiga_${def.name}_create`,
+    `Create a ${def.label}. Status and assignee are given by name, not by id.`,
+    { project: projectRef2, ...def.createFields },
+    guard(async (args) => {
+      const { project: ref, sprint, points, ...rest } = args;
+      const projectId = await ctx.cache.resolveProject(ref);
+      const payload = await resolveFields(ctx, def, projectId, rest);
+      payload.project = projectId;
+      if (typeof sprint === "string") {
+        payload.milestone = await resolveSprint(ctx, projectId, sprint);
+      }
+      if (points !== void 0) {
+        payload.points = await resolvePoints(ctx, projectId, points);
+      }
+      const created = await ctx.client.post(def.path, payload);
+      const labels = await buildLabels(ctx, def, projectId);
+      return ok(project(def.name, created, "slim", labels));
+    })
+  );
+  server.tool(
+    `taiga_${def.name}_update`,
+    `Update a ${def.label}. Only the fields you pass are changed; the current version is read and sent automatically.` + (def.supportsAppend ? ` Use append_description and add_tags to add without overwriting.` : ""),
+    {
+      project: projectRef2,
+      ...idArgs,
+      ...def.updateFields,
+      ...def.supportsAppend ? {
+        append_description: external_exports.string().optional().describe("Text to append to the existing description."),
+        add_tags: external_exports.array(external_exports.string()).optional().describe("Tags to add, keeping the existing ones.")
+      } : {}
+    },
+    guard(async (args) => {
+      const a = { ...args };
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locate(ctx, def, projectId, a);
+      const appendText = a.append_description;
+      const addTags = a.add_tags;
+      const sprint = a.sprint;
+      const points = a.points;
+      for (const key of [
+        "project",
+        "id",
+        "ref",
+        "slug",
+        "append_description",
+        "add_tags",
+        "sprint",
+        "points"
+      ]) {
+        delete a[key];
+      }
+      const changes = await resolveFields(ctx, def, projectId, a);
+      if (sprint !== void 0) {
+        changes.milestone = await resolveSprint(ctx, projectId, sprint);
+      }
+      if (points !== void 0) {
+        changes.points = await resolvePoints(ctx, projectId, points);
+      }
+      if (appendText !== void 0 || addTags !== void 0) {
+        const current = await ctx.client.get(
+          `${def.path}/${id}`
+        );
+        if (appendText !== void 0) {
+          const existing = current.description ?? "";
+          changes.description = existing ? `${existing}
+
+${appendText}` : appendText;
+        }
+        if (addTags !== void 0) {
+          const existing = Array.isArray(current.tags) ? current.tags.map((t) => Array.isArray(t) ? t[0] : t) : [];
+          changes.tags = [.../* @__PURE__ */ new Set([...existing, ...addTags])];
+        }
+      }
+      if (Object.keys(changes).length === 0) {
+        throw new TaigaError(`Nothing to change on this ${def.label}.`);
+      }
+      const updated = await ctx.client.patch(
+        def.path,
+        id,
+        changes
+      );
+      const labels = await buildLabels(ctx, def, projectId);
+      return ok(project(def.name, updated, "slim", labels));
+    })
+  );
+  server.tool(
+    `taiga_${def.name}_delete`,
+    `Permanently delete a ${def.label}. Requires confirm: true. Ask the user before calling this.`,
+    {
+      project: projectRef2,
+      ...idArgs,
+      confirm: external_exports.boolean().optional().describe("Must be true. Guards against accidental deletion.")
+    },
+    guard(async (args) => {
+      const a = args;
+      if (a.confirm !== true) {
+        throw new TaigaError(
+          `Refusing to delete this ${def.label} without confirm: true.`,
+          { hint: "Ask the user first, then call again with confirm: true." }
+        );
+      }
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locate(ctx, def, projectId, a);
+      await ctx.client.remove(def.path, id);
+      return ok({ deleted: true, resource: def.name, id });
+    })
+  );
+}
+
 // src/index.ts
 function createServer(ctx = createContext()) {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
   registerWhoamiTool(server, ctx);
   registerProjectTools(server, ctx);
+  for (const def of RESOURCES) registerCrudTools(server, ctx, def);
   return server;
 }
 async function main() {

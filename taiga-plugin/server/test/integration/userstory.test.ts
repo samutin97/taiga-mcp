@@ -1,0 +1,131 @@
+import { describe, it, expect, beforeAll } from "vitest";
+import { startClient } from "../helpers/mcp-client.js";
+
+const STAND = "http://localhost:9000";
+
+beforeAll(async () => {
+  process.env.TAIGA_URL = STAND;
+  process.env.TAIGA_USERNAME = "admin";
+  process.env.TAIGA_PASSWORD = "TaigaLocal2026!";
+  process.env.TAIGA_PROJECT = "mcp-sandbox";
+  const reachable = await fetch(`${STAND}/api/v1/`).then((r) => r.ok).catch(() => false);
+  if (!reachable) throw new Error("Local Taiga stand is not running — see infra/README.md");
+});
+
+async function call(name: string, args: Record<string, unknown> = {}) {
+  const client = await startClient();
+  const result = await client.callTool({ name, arguments: args });
+  const text = (result.content as { type: string; text: string }[])[0].text;
+  return {
+    raw: text,
+    json: result.isError ? undefined : JSON.parse(text),
+    isError: result.isError === true,
+  };
+}
+
+describe("user story CRUD", () => {
+  it("lists stories in slim form", async () => {
+    const { json } = await call("taiga_userstory_list");
+    expect(json.total).toBeGreaterThanOrEqual(9);
+    const first = json.items[0];
+    expect(Object.keys(first).sort()).toEqual(
+      [
+        "assigned_to", "is_blocked", "is_closed", "points", "ref",
+        "sprint", "status", "subject", "tags", "total_comments",
+      ].sort(),
+    );
+  });
+
+  it("keeps a nine-story listing under 800 tokens", async () => {
+    const { raw } = await call("taiga_userstory_list", { limit: 9 });
+    expect(raw.length / 4).toBeLessThan(800);
+  });
+
+  it("filters by status name", async () => {
+    const { json } = await call("taiga_userstory_list", { status: "In progress" });
+    expect(json.items.length).toBeGreaterThan(0);
+    for (const item of json.items) expect(item.status).toBe("In progress");
+  });
+
+  it("lists valid statuses when the filter name is wrong", async () => {
+    const { raw, isError } = await call("taiga_userstory_list", { status: "Nope" });
+    expect(isError).toBe(true);
+    expect(raw).toMatch(/Valid values:.*In progress/);
+  });
+
+  it("creates, reads by ref, updates and deletes a story", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Temp story from integration test",
+      status: "New",
+      tags: ["temp"],
+    });
+    expect(created.json.ref).toBeGreaterThan(0);
+    const ref = created.json.ref;
+
+    const fetched = await call("taiga_userstory_get", { ref });
+    expect(fetched.json.subject).toBe("Temp story from integration test");
+
+    const updated = await call("taiga_userstory_update", {
+      ref,
+      status: "In progress",
+    });
+    expect(updated.json.status).toBe("In progress");
+
+    const refused = await call("taiga_userstory_delete", { ref });
+    expect(refused.isError).toBe(true);
+    expect(refused.raw).toMatch(/confirm/i);
+
+    const deleted = await call("taiga_userstory_delete", { ref, confirm: true });
+    expect(deleted.isError).toBe(false);
+
+    const gone = await call("taiga_userstory_get", { ref });
+    expect(gone.isError).toBe(true);
+  });
+
+  it("appends to the description instead of overwriting", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Append test",
+      description: "First line.",
+    });
+    const ref = created.json.ref;
+
+    await call("taiga_userstory_update", { ref, append_description: "Second line." });
+    const after = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(after.json.description).toContain("First line.");
+    expect(after.json.description).toContain("Second line.");
+
+    await call("taiga_userstory_delete", { ref, confirm: true });
+  });
+
+  // The next two tests cover real Taiga API behavior the brief did not anticipate
+  // (verified live against the sandbox before implementing — see task-7-report.md):
+  //
+  // - Sending `epic` as a subject string straight through to Taiga's list filter
+  //   returns an HTTP 500 (Taiga expects a numeric epic id).
+  // - Sending `points` as a bare string or number to create/update also returns
+  //   an HTTP 500 (Taiga stores points as a per-role map, not a scalar).
+
+  it("filters by epic subject", async () => {
+    const { json, isError } = await call("taiga_userstory_list", {
+      epic: "MCP integration layer",
+    });
+    expect(isError).toBe(false);
+    expect(json.items.length).toBeGreaterThan(0);
+  });
+
+  it("sets story points without crashing Taiga", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Points test",
+      points: "5",
+    });
+    expect(created.isError).toBe(false);
+    const ref = created.json.ref;
+    expect(created.json.points).toBe(5);
+
+    const updated = await call("taiga_userstory_update", { ref, points: "8" });
+    expect(updated.isError).toBe(false);
+    expect(updated.json.points).toBe(8);
+
+    await call("taiga_userstory_delete", { ref, confirm: true });
+  });
+});
