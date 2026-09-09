@@ -56,7 +56,12 @@ export function registerCommentTools(server: McpServer, ctx: ToolContext): void 
         `/history/${COMMENTABLE[resource].history}/${id}`,
       );
       const items = history
-        .filter((entry) => typeof entry.comment === "string" && entry.comment !== "")
+        .filter(
+          (entry) =>
+            typeof entry.comment === "string" &&
+            entry.comment !== "" &&
+            entry.delete_comment_date == null,
+        )
         .map((entry) => ({
           author:
             (entry.user as Record<string, unknown> | undefined)?.name ?? null,

@@ -22569,7 +22569,9 @@ function registerCommentTools(server, ctx) {
       const history = await ctx.client.get(
         `/history/${COMMENTABLE[resource].history}/${id}`
       );
-      const items = history.filter((entry) => typeof entry.comment === "string" && entry.comment !== "").map((entry) => ({
+      const items = history.filter(
+        (entry) => typeof entry.comment === "string" && entry.comment !== "" && entry.delete_comment_date == null
+      ).map((entry) => ({
         author: entry.user?.name ?? null,
         created_at: entry.created_at,
         comment: entry.comment
