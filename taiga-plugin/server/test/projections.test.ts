@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { project, projectMany } from "../src/projections.js";
+
+/** A real Taiga user story, captured from a live 6.9.0 instance: 53 fields. */
+const realStory = JSON.parse(
+  readFileSync(join(import.meta.dirname, "fixtures/userstory.json"), "utf8"),
+) as Record<string, unknown>;
 
 const rawStory = {
   id: 501,
@@ -59,10 +66,28 @@ describe("projections", () => {
   });
 
   it("shrinks a list by at least 85 percent", () => {
-    const rows = Array.from({ length: 9 }, () => rawStory);
+    const rows = Array.from({ length: 9 }, () => realStory);
     const rawSize = JSON.stringify(rows).length;
     const slimSize = JSON.stringify(projectMany("userstory", rows)).length;
     expect(slimSize).toBeLessThan(rawSize * 0.15);
+  });
+
+  it("projects a real Taiga story to the slim key set", () => {
+    const result = project("userstory", realStory);
+    expect(Object.keys(result).sort()).toEqual(
+      [
+        "assigned_to",
+        "is_blocked",
+        "is_closed",
+        "points",
+        "ref",
+        "sprint",
+        "status",
+        "subject",
+        "tags",
+        "total_comments",
+      ].sort(),
+    );
   });
 
   // Tests for labelled fields (corrections)
