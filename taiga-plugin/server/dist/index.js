@@ -22602,6 +22602,114 @@ function registerCommentTools(server, ctx) {
   );
 }
 
+// src/tools/search.ts
+function registerSearchTool(server, ctx) {
+  server.tool(
+    "taiga_search",
+    "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref.",
+    {
+      project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+      text: external_exports.string().min(1).describe("Search query.")
+    },
+    guard(async (args) => {
+      const a = args;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const found = await ctx.client.get(
+        "/search",
+        { project: projectId, text: a.text }
+      );
+      const [priority, severity, type, member] = await Promise.all([
+        ctx.cache.labelMap(projectId, "priority"),
+        ctx.cache.labelMap(projectId, "severity"),
+        ctx.cache.labelMap(projectId, "issue-type"),
+        ctx.cache.labelMap(projectId, "member")
+      ]);
+      const issueLabels = { priority, severity, type };
+      const wikiLabels = { member };
+      const bucket = (key, resource, labels = {}) => projectMany(resource, found[key] ?? [], "slim", labels);
+      return ok({
+        count: found.count ?? 0,
+        userstories: bucket("userstories", "userstory"),
+        tasks: bucket("tasks", "task"),
+        issues: bucket("issues", "issue", issueLabels),
+        epics: bucket("epics", "epic"),
+        wikipages: bucket("wikipages", "wiki", wikiLabels)
+      });
+    })
+  );
+}
+
+// src/tools/bulk.ts
+var MAX_ITEMS = 50;
+var BULK_RESOURCES = {
+  userstory: USER_STORY,
+  task: TASK,
+  issue: ISSUE
+};
+async function buildLabels2(ctx, def, projectId) {
+  const wanted = def.labels ?? [];
+  const resolved = await Promise.all(
+    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
+  );
+  return Object.fromEntries(resolved);
+}
+function registerBulkTool(server, ctx) {
+  server.tool(
+    "taiga_bulk_create",
+    `Create up to ${MAX_ITEMS} user stories, tasks or issues in one call. Each item is created independently: a failure in one does not stop the rest. Show the user the plan before calling this.`,
+    {
+      project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+      resource: external_exports.enum(["userstory", "task", "issue"]),
+      items: external_exports.array(external_exports.record(external_exports.unknown())).min(1).describe(
+        "Items to create. Each takes the same fields as the matching taiga_<resource>_create tool, e.g. {subject, description, status, tags}."
+      )
+    },
+    guard(async (args) => {
+      const a = args;
+      if (a.items.length > MAX_ITEMS) {
+        throw new TaigaError(
+          `Refusing to create ${a.items.length} items at once; the limit is ${MAX_ITEMS}.`,
+          { hint: "Split the work into smaller batches." }
+        );
+      }
+      const def = BULK_RESOURCES[a.resource];
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const labels = await buildLabels2(ctx, def, projectId);
+      const created = [];
+      const failed = [];
+      for (const item of a.items) {
+        try {
+          const payload = { project: projectId };
+          for (const [key, value] of Object.entries(item)) {
+            if (value === void 0) continue;
+            const lookup = def.lookups.find((entry) => entry.field === key);
+            payload[key] = lookup ? await ctx.cache.resolveLookup(
+              projectId,
+              lookup.kind,
+              value
+            ) : value;
+          }
+          if (typeof payload.user_story === "number") {
+            payload.user_story = await ctx.cache.resolveRef(
+              projectId,
+              "us",
+              payload.user_story
+            );
+          }
+          const row = await ctx.client.post(def.path, payload);
+          created.push(project(def.name, row, "slim", labels));
+        } catch (error2) {
+          failed.push({
+            item,
+            error: error2 instanceof Error ? error2.message : String(error2)
+          });
+        }
+      }
+      return ok({ created, failed });
+    })
+  );
+}
+
 // src/index.ts
 function createServer(ctx = createContext()) {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
@@ -22609,6 +22717,8 @@ function createServer(ctx = createContext()) {
   registerProjectTools(server, ctx);
   for (const def of RESOURCES) registerCrudTools(server, ctx, def);
   registerCommentTools(server, ctx);
+  registerSearchTool(server, ctx);
+  registerBulkTool(server, ctx);
   return server;
 }
 async function main() {

@@ -6,6 +6,8 @@ import { registerProjectTools } from "./tools/project.js";
 import { RESOURCES } from "./resources.js";
 import { registerCrudTools } from "./tools/crud.js";
 import { registerCommentTools } from "./tools/comment.js";
+import { registerSearchTool } from "./tools/search.js";
+import { registerBulkTool } from "./tools/bulk.js";
 
 export function createServer(ctx: ToolContext = createContext()): McpServer {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
@@ -13,6 +15,8 @@ export function createServer(ctx: ToolContext = createContext()): McpServer {
   registerProjectTools(server, ctx);
   for (const def of RESOURCES) registerCrudTools(server, ctx, def);
   registerCommentTools(server, ctx);
+  registerSearchTool(server, ctx);
+  registerBulkTool(server, ctx);
   return server;
 }
 
