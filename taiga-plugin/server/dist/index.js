@@ -22802,8 +22802,22 @@ function registerStatsTool(server, ctx) {
 }
 
 // src/tools/attachment.ts
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+var MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+function checkUploadSize(size, filePath) {
+  if (size > MAX_UPLOAD_BYTES) {
+    throw new TaigaError(
+      `"${filePath}" is ${Math.round(size / 1024 / 1024)} MB; the limit is 100 MB.`,
+      { hint: "Taiga's gateway rejects larger uploads." }
+    );
+  }
+}
+function unreadableFile(filePath) {
+  return new TaigaError(`Cannot read the file "${filePath}".`, {
+    hint: "Pass an absolute path to a file that exists."
+  });
+}
 var ATTACHABLE = {
   userstory: { path: "/userstories/attachments", resolverKey: "us" },
   task: { path: "/tasks/attachments", resolverKey: "task" },
@@ -22828,7 +22842,6 @@ function slim(row) {
     id: row.id,
     name: row.name,
     size: row.size,
-    url: row.url,
     created_date: row.created_date
   };
 }
@@ -22863,13 +22876,18 @@ function registerAttachmentTools(server, ctx) {
       const a = args;
       const resource = a.resource;
       const filePath = a.file_path;
+      let size;
+      try {
+        size = (await stat(filePath)).size;
+      } catch {
+        throw unreadableFile(filePath);
+      }
+      checkUploadSize(size, filePath);
       let data;
       try {
         data = await readFile(filePath);
       } catch {
-        throw new TaigaError(`Cannot read the file "${filePath}".`, {
-          hint: "Pass an absolute path to a file that exists."
-        });
+        throw unreadableFile(filePath);
       }
       const projectId = await ctx.cache.resolveProject(a.project);
       const objectId = await locate2(
@@ -22905,7 +22923,7 @@ function registerAttachmentTools(server, ctx) {
       );
       const { data } = await ctx.client.getBinary(String(row.url));
       await mkdir(a.target_dir, { recursive: true });
-      const savedTo = join(a.target_dir, String(row.name));
+      const savedTo = join(a.target_dir, basename(String(row.name)));
       await writeFile(savedTo, data);
       return ok({ saved_to: savedTo, size: data.byteLength });
     })

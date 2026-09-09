@@ -1,9 +1,29 @@
 import { z } from "zod";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard } from "../context.js";
 import { TaigaError } from "../errors.js";
+
+// Taiga's gateway (nginx) caps request bodies at 100M on the local stand;
+// refuse early with a clear message instead of buffering a huge file into
+// memory only to have the upload rejected anyway.
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+export function checkUploadSize(size: number, filePath: string): void {
+  if (size > MAX_UPLOAD_BYTES) {
+    throw new TaigaError(
+      `"${filePath}" is ${Math.round(size / 1024 / 1024)} MB; the limit is 100 MB.`,
+      { hint: "Taiga's gateway rejects larger uploads." },
+    );
+  }
+}
+
+function unreadableFile(filePath: string): TaigaError {
+  return new TaigaError(`Cannot read the file "${filePath}".`, {
+    hint: "Pass an absolute path to a file that exists.",
+  });
+}
 
 /** Resources that carry attachments, mapped to their /attachments segment. */
 const ATTACHABLE = {
@@ -37,12 +57,16 @@ async function locate(
   throw new TaigaError("Specify the item by `ref` (the #number) or `id`.");
 }
 
+// `url` is deliberately not projected: it is a self-authorizing, signed link
+// to the file (the `?token=` query parameter, not the caller's session, is
+// what grants access to it). Echoing it here would leak a no-login-required
+// download link into every MCP transcript that captures this result.
+// `taiga_attachment_download` fetches the row itself and reads `url` there.
 function slim(row: Record<string, unknown>) {
   return {
     id: row.id,
     name: row.name,
     size: row.size,
-    url: row.url,
     created_date: row.created_date,
   };
 }
@@ -76,13 +100,19 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
       const resource = a.resource as Attachable;
       const filePath = a.file_path as string;
 
+      let size: number;
+      try {
+        size = (await stat(filePath)).size;
+      } catch {
+        throw unreadableFile(filePath);
+      }
+      checkUploadSize(size, filePath);
+
       let data: Buffer;
       try {
         data = await readFile(filePath);
       } catch {
-        throw new TaigaError(`Cannot read the file "${filePath}".`, {
-          hint: "Pass an absolute path to a file that exists.",
-        });
+        throw unreadableFile(filePath);
       }
 
       const projectId = await ctx.cache.resolveProject(a.project as string | undefined);
@@ -119,7 +149,10 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
       const { data } = await ctx.client.getBinary(String(row.url));
 
       await mkdir(a.target_dir, { recursive: true });
-      const savedTo = join(a.target_dir, String(row.name));
+      // basename strips any directory components (including `..`) that a
+      // hostile or careless attachment name might carry, so the write can
+      // never land outside target_dir.
+      const savedTo = join(a.target_dir, basename(String(row.name)));
       await writeFile(savedTo, data);
       return ok({ saved_to: savedTo, size: data.byteLength });
     }),
