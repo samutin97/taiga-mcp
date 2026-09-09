@@ -208,7 +208,10 @@ export const EPIC: ResourceDef = {
     assigned_to: z.string().optional(),
     tags: tagsField,
   },
-  lookups: [{ field: "assigned_to", kind: "member" }],
+  lookups: [
+    { field: "status", kind: "epic-status" },
+    { field: "assigned_to", kind: "member" },
+  ],
   supportsAppend: true,
 };
 

@@ -5,6 +5,7 @@ export type LookupKind =
   | "userstory-status"
   | "task-status"
   | "issue-status"
+  | "epic-status"
   | "priority"
   | "severity"
   | "issue-type"
@@ -16,6 +17,7 @@ const LOOKUP_PATHS: Record<LookupKind, string> = {
   "userstory-status": "/userstory-statuses",
   "task-status": "/task-statuses",
   "issue-status": "/issue-statuses",
+  "epic-status": "/epic-statuses",
   priority: "/priorities",
   severity: "/severities",
   "issue-type": "/issue-types",

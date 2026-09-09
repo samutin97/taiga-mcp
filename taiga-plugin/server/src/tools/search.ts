@@ -27,11 +27,13 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
       // wikipage hits) — the exact shape the label mechanism exists to
       // translate. Each resource has its own status table, so these must
       // not be shared across buckets.
-      const [userstoryStatus, taskStatus, issueStatus, priority, severity, type, member] =
-        await Promise.all([
+      const [
+        userstoryStatus, taskStatus, issueStatus, epicStatus, priority, severity, type, member,
+      ] = await Promise.all([
           ctx.cache.labelMap(projectId, "userstory-status"),
           ctx.cache.labelMap(projectId, "task-status"),
           ctx.cache.labelMap(projectId, "issue-status"),
+          ctx.cache.labelMap(projectId, "epic-status"),
           ctx.cache.labelMap(projectId, "priority"),
           ctx.cache.labelMap(projectId, "severity"),
           ctx.cache.labelMap(projectId, "issue-type"),
@@ -40,7 +42,7 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
       const userstoryLabels: LabelMaps = { status: userstoryStatus, member };
       const taskLabels: LabelMaps = { status: taskStatus, member };
       const issueLabels: LabelMaps = { status: issueStatus, priority, severity, type, member };
-      const epicLabels: LabelMaps = { member };
+      const epicLabels: LabelMaps = { status: epicStatus, member };
       const wikiLabels: LabelMaps = { member };
 
       const bucket = (

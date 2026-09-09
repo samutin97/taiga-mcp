@@ -21690,6 +21690,7 @@ var LOOKUP_PATHS = {
   "userstory-status": "/userstory-statuses",
   "task-status": "/task-statuses",
   "issue-status": "/issue-statuses",
+  "epic-status": "/epic-statuses",
   priority: "/priorities",
   severity: "/severities",
   "issue-type": "/issue-types",
@@ -22219,7 +22220,10 @@ var EPIC = {
     assigned_to: external_exports.string().optional(),
     tags: tagsField
   },
-  lookups: [{ field: "assigned_to", kind: "member" }],
+  lookups: [
+    { field: "status", kind: "epic-status" },
+    { field: "assigned_to", kind: "member" }
+  ],
   supportsAppend: true
 };
 var SPRINT = {
@@ -22625,10 +22629,20 @@ function registerSearchTool(server, ctx) {
         "/search",
         { project: projectId, text: a.text }
       );
-      const [userstoryStatus, taskStatus, issueStatus, priority, severity, type, member] = await Promise.all([
+      const [
+        userstoryStatus,
+        taskStatus,
+        issueStatus,
+        epicStatus,
+        priority,
+        severity,
+        type,
+        member
+      ] = await Promise.all([
         ctx.cache.labelMap(projectId, "userstory-status"),
         ctx.cache.labelMap(projectId, "task-status"),
         ctx.cache.labelMap(projectId, "issue-status"),
+        ctx.cache.labelMap(projectId, "epic-status"),
         ctx.cache.labelMap(projectId, "priority"),
         ctx.cache.labelMap(projectId, "severity"),
         ctx.cache.labelMap(projectId, "issue-type"),
@@ -22637,7 +22651,7 @@ function registerSearchTool(server, ctx) {
       const userstoryLabels = { status: userstoryStatus, member };
       const taskLabels = { status: taskStatus, member };
       const issueLabels = { status: issueStatus, priority, severity, type, member };
-      const epicLabels = { member };
+      const epicLabels = { status: epicStatus, member };
       const wikiLabels = { member };
       const bucket = (key, resource, labels = {}) => projectMany(resource, found[key] ?? [], "slim", labels);
       return ok({

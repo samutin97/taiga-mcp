@@ -81,6 +81,16 @@ describe("search", () => {
     expect(hit.status.length).toBeGreaterThan(0);
   });
 
+  it("resolves an epic hit's status to a name, not a bare id", async () => {
+    // "integration layer" matches only the "MCP integration layer" epic's
+    // subject, so this is unambiguous even though other buckets are empty.
+    const { json } = await call("taiga_search", { text: "integration layer" });
+    expect(json.epics.length).toBeGreaterThan(0);
+    const hit = json.epics[0];
+    expect(typeof hit.status).toBe("string");
+    expect(hit.status.length).toBeGreaterThan(0);
+  });
+
   // Correction 1 (resolving issue priority/severity/type and wikipages'
   // last_modifier to names) is verified at the unit level in
   // test/search.test.ts, not here. Verified live: Taiga 6.9.0's /search
@@ -90,6 +100,34 @@ describe("search", () => {
   // priority and searching for it by subject. An integration assertion on
   // those fields here would be vacuous: the fields are always absent, so it
   // would pass whether or not the label-resolution code exists.
+});
+
+describe("epic status by name", () => {
+  it("accepts and returns a status by name via taiga_epic_update, then restores it", async () => {
+    const EPIC_REF = 1; // "MCP integration layer" — seeded, not created by this test.
+    const before = await call("taiga_epic_get", { ref: EPIC_REF });
+    expect(before.isError).toBe(false);
+    const originalStatus = before.json.status as string;
+
+    try {
+      const updated = await call("taiga_epic_update", {
+        ref: EPIC_REF,
+        status: "In progress",
+      });
+      expect(updated.isError).toBe(false);
+      expect(updated.json.status).toBe("In progress");
+
+      const fetched = await call("taiga_epic_get", { ref: EPIC_REF });
+      expect(fetched.json.status).toBe("In progress");
+    } finally {
+      const restored = await call("taiga_epic_update", {
+        ref: EPIC_REF,
+        status: originalStatus,
+      });
+      expect(restored.isError).toBe(false);
+      expect(restored.json.status).toBe(originalStatus);
+    }
+  });
 });
 
 describe("bulk create", () => {
