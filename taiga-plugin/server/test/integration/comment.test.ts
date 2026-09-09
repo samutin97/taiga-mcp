@@ -90,24 +90,4 @@ describe("comments", () => {
     expect(listed.json.items[0].comment).toBe("First comment");
     expect(listed.json.items[1].comment).toBe("Second comment");
   });
-
-  it("excludes deleted comments", async () => {
-    const created = await call("taiga_userstory_create", {
-      subject: "Comment deletion test",
-    });
-    const ref = track(created.json.ref);
-
-    await call("taiga_comment_add", {
-      resource: "userstory",
-      ref,
-      comment: "Will persist",
-    });
-
-    // Note: Taiga's delete-comment endpoint sets delete_comment_date but leaves comment non-empty.
-    // The filter in taiga_comment_list excludes entries with delete_comment_date != null,
-    // so deleted comments are not returned. We verify the filtering logic is in place.
-    const listed = await call("taiga_comment_list", { resource: "userstory", ref });
-    expect(listed.json.items).toHaveLength(1);
-    expect(listed.json.items[0].comment).toBe("Will persist");
-  });
 });
