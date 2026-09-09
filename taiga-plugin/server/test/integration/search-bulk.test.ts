@@ -296,5 +296,30 @@ describe("bulk create", () => {
       expect(json.failed).toHaveLength(1);
       expect(json.failed[0].error).toMatch(/epic/i);
     });
+
+    it("rejects a non-string `epic` instead of silently treating it as absent", async () => {
+      const epics = await call("taiga_epic_list");
+      const epicSubject = epics.json.items[0].subject;
+
+      const { json } = await call("taiga_bulk_create", {
+        resource: "userstory",
+        items: [
+          { subject: "Bulk epic-link bad type", epic: 42 },
+          { subject: "Bulk epic-link good sibling", epic: epicSubject },
+        ],
+      });
+      for (const item of json.created) track(item.ref as number);
+
+      expect(json.failed).toHaveLength(1);
+      expect(json.failed[0].item.subject).toBe("Bulk epic-link bad type");
+      expect(json.failed[0].error).toMatch(/epic/i);
+
+      expect(json.created).toHaveLength(1);
+      expect(json.created[0].subject).toBe("Bulk epic-link good sibling");
+
+      const filtered = await call("taiga_userstory_list", { epic: epicSubject });
+      const linkedRefs = filtered.json.items.map((item: { ref: number }) => item.ref);
+      expect(linkedRefs).toContain(json.created[0].ref);
+    });
   });
 });

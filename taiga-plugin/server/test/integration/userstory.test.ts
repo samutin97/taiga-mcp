@@ -72,6 +72,20 @@ describe("user story CRUD", () => {
     expect(raw).toMatch(/Valid values:.*In progress/);
   });
 
+  it("in_backlog returns only sprint-less stories, strictly fewer than everything", async () => {
+    const all = await call("taiga_userstory_list", { limit: 200 });
+    const backlog = await call("taiga_userstory_list", { in_backlog: true, limit: 200 });
+
+    expect(backlog.isError).toBe(false);
+    // Not hardcoded to the sandbox's current numbers: just that filtering
+    // narrows the result, and every item it keeps genuinely has no sprint.
+    expect(backlog.json.items.length).toBeGreaterThan(0);
+    expect(backlog.json.items.length).toBeLessThan(all.json.items.length);
+    for (const item of backlog.json.items) {
+      expect(item.sprint).toBeNull();
+    }
+  });
+
   it("creates, reads by ref, updates and deletes a story", async () => {
     const created = await call("taiga_userstory_create", {
       subject: "Temp story from integration test",

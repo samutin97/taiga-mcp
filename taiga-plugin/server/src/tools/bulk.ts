@@ -102,7 +102,19 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
           // avoid on the single-create path.
           if (def.name !== "userstory" && item.epic !== undefined) {
             throw new TaigaError(
-              `"epic" only applies to user stories; it has no effect on a ${def.label}.`,
+              `"epic" applies to user stories only, not to ${def.label} items.`,
+            );
+          }
+          // A non-string `epic` (number, boolean, object, null) would
+          // otherwise fail the `typeof epicValue === "string"` check below
+          // silently — the item would be created with no link and no error,
+          // the same failure this field exists to avoid, reached through a
+          // type mismatch instead of a bad name. The single-create tool's
+          // zod schema rejects this before the handler ever runs; bulk items
+          // are `z.record(z.unknown())` and need the check done by hand.
+          if (def.name === "userstory" && item.epic !== undefined && typeof item.epic !== "string") {
+            throw new TaigaError(
+              `"epic" must be an epic subject given as a string, not ${typeof item.epic}.`,
             );
           }
 

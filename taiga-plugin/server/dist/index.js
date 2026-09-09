@@ -22058,6 +22058,7 @@ var USER_STORY = {
   hasRef: true,
   listFilters: {
     sprint: external_exports.string().optional().describe("Sprint (milestone) name to filter by."),
+    in_backlog: external_exports.boolean().optional().describe("Only stories not assigned to any sprint."),
     status: external_exports.string().optional().describe("Status name, e.g. 'In progress'."),
     assigned_to: external_exports.string().optional().describe("Assignee full name."),
     epic: external_exports.string().optional().describe("Epic subject to filter by."),
@@ -22408,6 +22409,8 @@ function registerCrudTools(server, ctx, def) {
         if (value === void 0) continue;
         if (key === "sprint") {
           params.milestone = await resolveSprint(ctx, projectId, String(value));
+        } else if (key === "in_backlog") {
+          if (value === true) params.milestone = "null";
         } else if (key === "epic") {
           params.epic = await resolveEpic(ctx, projectId, String(value));
         } else if (key === "user_story") {
@@ -22751,7 +22754,12 @@ function registerBulkTool(server, ctx) {
         try {
           if (def.name !== "userstory" && item.epic !== void 0) {
             throw new TaigaError(
-              `"epic" only applies to user stories; it has no effect on a ${def.label}.`
+              `"epic" applies to user stories only, not to ${def.label} items.`
+            );
+          }
+          if (def.name === "userstory" && item.epic !== void 0 && typeof item.epic !== "string") {
+            throw new TaigaError(
+              `"epic" must be an epic subject given as a string, not ${typeof item.epic}.`
             );
           }
           const payload = { project: projectId };

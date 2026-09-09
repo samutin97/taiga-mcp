@@ -35,6 +35,8 @@ export const USER_STORY: ResourceDef = {
   hasRef: true,
   listFilters: {
     sprint: z.string().optional().describe("Sprint (milestone) name to filter by."),
+    in_backlog: z.boolean().optional()
+      .describe("Only stories not assigned to any sprint."),
     status: z.string().optional().describe("Status name, e.g. 'In progress'."),
     assigned_to: z.string().optional().describe("Assignee full name."),
     epic: z.string().optional().describe("Epic subject to filter by."),

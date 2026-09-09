@@ -241,6 +241,12 @@ export function registerCrudTools(
         if (value === undefined) continue;
         if (key === "sprint") {
           params.milestone = await resolveSprint(ctx, projectId, String(value));
+        } else if (key === "in_backlog") {
+          // Taiga wants the literal string "null" here, not the boolean.
+          // No inverse form on this endpoint: `in_backlog: false` means "no
+          // opinion" — nothing sent — not "assigned to a sprint", since
+          // that is already what a plain, unfiltered call returns.
+          if (value === true) params.milestone = "null";
         } else if (key === "epic") {
           params.epic = await resolveEpic(ctx, projectId, String(value));
         } else if (key === "user_story") {
