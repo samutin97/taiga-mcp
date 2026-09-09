@@ -53,7 +53,7 @@ async function locate(
   }
   throw new TaigaError(
     `Specify which ${def.label} to act on.`,
-    { hint: def.hasRef ? "Pass `ref` (the #number) or `id`." : "Pass `id`." },
+    { hint: def.hasRef ? "Pass `ref` (the #number) or `id`." : "Pass `slug` or `id`." },
   );
 }
 

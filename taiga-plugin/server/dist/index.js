@@ -22177,6 +22177,7 @@ var ISSUE = {
     { field: "type", kind: "issue-type" },
     { field: "assigned_to", kind: "member" }
   ],
+  // Taiga returns priority, severity, and type as bare numeric ids with no *_extra_info; without these maps the tool shows numbers to the model.
   labels: [
     { map: "priority", kind: "priority" },
     { map: "severity", kind: "severity" },
@@ -22250,6 +22251,7 @@ var WIKI = {
     content: external_exports.string().optional().describe("Replacement Markdown content.")
   },
   lookups: [],
+  // Taiga returns created_by as a bare numeric id with no *_extra_info; without this map the tool shows a number to the model.
   labels: [{ map: "member", kind: "member" }],
   supportsAppend: false
 };
@@ -22291,7 +22293,7 @@ async function locate(ctx, def, projectId, args) {
   }
   throw new TaigaError(
     `Specify which ${def.label} to act on.`,
-    { hint: def.hasRef ? "Pass `ref` (the #number) or `id`." : "Pass `id`." }
+    { hint: def.hasRef ? "Pass `ref` (the #number) or `id`." : "Pass `slug` or `id`." }
   );
 }
 async function resolveFields(ctx, def, projectId, input) {
@@ -22527,12 +22529,84 @@ ${appendText}` : appendText;
   );
 }
 
+// src/tools/comment.ts
+var COMMENTABLE = {
+  userstory: { path: "/userstories", history: "userstory", resolverKey: "us" },
+  task: { path: "/tasks", history: "task", resolverKey: "task" },
+  issue: { path: "/issues", history: "issue", resolverKey: "issue" },
+  epic: { path: "/epics", history: "epic", resolverKey: "epic" }
+};
+var resourceArg = external_exports.enum(["userstory", "task", "issue", "epic"]).describe("Which kind of item the comment belongs to.");
+async function locateItem(ctx, resource, projectId, id, ref) {
+  if (typeof id === "number") return id;
+  if (typeof ref === "number") {
+    return ctx.cache.resolveRef(projectId, COMMENTABLE[resource].resolverKey, ref);
+  }
+  throw new TaigaError("Specify the item by `ref` (the #number) or `id`.");
+}
+function registerCommentTools(server, ctx) {
+  const common = {
+    project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+    resource: resourceArg,
+    id: external_exports.number().optional().describe("Internal item id."),
+    ref: external_exports.number().optional().describe("The #number shown in Taiga.")
+  };
+  server.tool(
+    "taiga_comment_list",
+    "List the comments on a user story, task, issue or epic, oldest first.",
+    common,
+    guard(async (args) => {
+      const a = args;
+      const resource = a.resource;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locateItem(
+        ctx,
+        resource,
+        projectId,
+        a.id,
+        a.ref
+      );
+      const history = await ctx.client.get(
+        `/history/${COMMENTABLE[resource].history}/${id}`
+      );
+      const items = history.filter((entry) => typeof entry.comment === "string" && entry.comment !== "").map((entry) => ({
+        author: entry.user?.name ?? null,
+        created_at: entry.created_at,
+        comment: entry.comment
+      })).reverse();
+      return ok({ total: items.length, items });
+    })
+  );
+  server.tool(
+    "taiga_comment_add",
+    "Add a comment to a user story, task, issue or epic.",
+    { ...common, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
+    guard(async (args) => {
+      const a = args;
+      const resource = a.resource;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locateItem(
+        ctx,
+        resource,
+        projectId,
+        a.id,
+        a.ref
+      );
+      await ctx.client.patch(COMMENTABLE[resource].path, id, {
+        comment: a.comment
+      });
+      return ok({ added: true, resource, id });
+    })
+  );
+}
+
 // src/index.ts
 function createServer(ctx = createContext()) {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
   registerWhoamiTool(server, ctx);
   registerProjectTools(server, ctx);
   for (const def of RESOURCES) registerCrudTools(server, ctx, def);
+  registerCommentTools(server, ctx);
   return server;
 }
 async function main() {

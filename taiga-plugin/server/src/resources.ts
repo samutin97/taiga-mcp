@@ -172,6 +172,7 @@ export const ISSUE: ResourceDef = {
     { field: "type", kind: "issue-type" },
     { field: "assigned_to", kind: "member" },
   ],
+  // Taiga returns priority, severity, and type as bare numeric ids with no *_extra_info; without these maps the tool shows numbers to the model.
   labels: [
     { map: "priority", kind: "priority" },
     { map: "severity", kind: "severity" },
@@ -248,6 +249,7 @@ export const WIKI: ResourceDef = {
     content: z.string().optional().describe("Replacement Markdown content."),
   },
   lookups: [],
+  // Taiga returns created_by as a bare numeric id with no *_extra_info; without this map the tool shows a number to the model.
   labels: [{ map: "member", kind: "member" }],
   supportsAppend: false,
 };

@@ -5,12 +5,14 @@ import { registerWhoamiTool } from "./tools/whoami.js";
 import { registerProjectTools } from "./tools/project.js";
 import { RESOURCES } from "./resources.js";
 import { registerCrudTools } from "./tools/crud.js";
+import { registerCommentTools } from "./tools/comment.js";
 
 export function createServer(ctx: ToolContext = createContext()): McpServer {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
   registerWhoamiTool(server, ctx);
   registerProjectTools(server, ctx);
   for (const def of RESOURCES) registerCrudTools(server, ctx, def);
+  registerCommentTools(server, ctx);
   return server;
 }
 
