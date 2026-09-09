@@ -105,4 +105,136 @@ describe("TaigaClient", () => {
       /changed in Taiga/i,
     );
   });
+
+  it("post() sends JSON and bearer token", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(json({ id: 10, subject: "New" }));
+    const { client } = makeClient(fetchImpl);
+
+    await client.post("/userstories", { subject: "New" });
+
+    const [, init] = fetchImpl.mock.calls[1];
+    expect(init.method).toBe("POST");
+    expect(init.headers["content-type"]).toBe("application/json");
+    expect(JSON.parse(init.body)).toEqual({ subject: "New" });
+    expect(init.headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("remove() sends DELETE and handles 204", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(
+        new Response(null, { status: 204, statusText: "No Content" }),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    await expect(client.remove("/userstories", 7)).resolves.toBeUndefined();
+
+    const [, init] = fetchImpl.mock.calls[1];
+    expect(init.method).toBe("DELETE");
+    expect(init.headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("postForm() sends FormData without content-type header", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(json({ id: 15 }));
+    const { client } = makeClient(fetchImpl);
+
+    const form = new FormData();
+    form.append("file", new Blob(["test"]), "test.txt");
+    await client.postForm("/attachments", form);
+
+    const [, init] = fetchImpl.mock.calls[1];
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(form);
+    expect(init.headers["content-type"]).toBeUndefined();
+    expect(init.headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("getBinary() retries on 401 with new token", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "old", id: 1 }))
+      .mockResolvedValueOnce(json({ detail: "expired" }, 401))
+      .mockResolvedValueOnce(json({ auth_token: "new", id: 1 }))
+      .mockResolvedValueOnce(
+        new Response(Buffer.from("binary"), {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+        }),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    const result = await client.getBinary("http://taiga.test/attachments/file.pdf");
+    expect(result.data).toEqual(Buffer.from("binary"));
+    expect(result.contentType).toBe("application/pdf");
+    expect(fetchImpl.mock.calls[3][1].headers.Authorization).toBe("Bearer new");
+  });
+
+  it("getBinary() on network error throws TaigaError with URL", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockRejectedValueOnce(new Error("Network unreachable"));
+    const { client } = makeClient(fetchImpl);
+
+    await expect(
+      client.getBinary("http://taiga.test/attachments/file.pdf"),
+    ).rejects.toThrow(/Cannot reach Taiga at http:\/\/taiga\.test\/attachments\/file\.pdf/);
+  });
+
+  it("list() on short final page: total=5, page_size=3, page 2 with 2 items → hasMore=false", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(
+        json([{ id: 4 }, { id: 5 }], 200, {
+          "x-pagination-count": "5",
+          "x-pagination-current": "2",
+        }),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    const result = await client.list("/userstories", { page: 2, page_size: 3 });
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("list() on empty page past the end → hasMore=false", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(
+        json([], 200, {
+          "x-pagination-count": "5",
+          "x-pagination-current": "3",
+        }),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    const result = await client.list("/userstories", { page: 3, page_size: 3 });
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("patch() with validation error containing 'version' field → shows actual error, not conflict", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(json({ id: 7, version: 3 }))
+      .mockResolvedValueOnce(
+        json({ app_version: ["This field is required."] }, 400),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    await expect(client.patch("/userstories", 7, { subject: "x" })).rejects.toThrow(
+      /app_version/,
+    );
+    await expect(client.patch("/userstories", 7, { subject: "x" })).rejects.not.toThrow(
+      /changed in Taiga/i,
+    );
+  });
 });

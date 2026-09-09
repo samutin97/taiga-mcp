@@ -30,17 +30,14 @@ export class TaigaClient {
     return url.toString();
   }
 
-  /** Perform a request, re-authenticating once if the token has expired. */
-  private async request(
-    path: string,
-    init: RequestInit,
-    params?: Params,
-  ): Promise<Response> {
-    const url = this.buildUrl(path, params);
-
+  /** Perform a request against an absolute URL, re-authenticating once on 401. */
+  private async sendWithRetry(url: string, init: RequestInit): Promise<Response> {
     const send = async (): Promise<Response> => {
       const token = await this.auth.getToken();
-      const headers = { ...(init.headers as Record<string, string>), Authorization: `Bearer ${token}` };
+      const headers = {
+        ...(init.headers as Record<string, string> | undefined),
+        Authorization: `Bearer ${token}`,
+      };
       try {
         return await this.fetchImpl(url, { ...init, headers });
       } catch {
@@ -56,6 +53,15 @@ export class TaigaClient {
       response = await send();
     }
     return response;
+  }
+
+  /** Perform a request, re-authenticating once if the token has expired. */
+  private async request(
+    path: string,
+    init: RequestInit,
+    params?: Params,
+  ): Promise<Response> {
+    return this.sendWithRetry(this.buildUrl(path, params), init);
   }
 
   private async parse(response: Response): Promise<unknown> {
@@ -84,7 +90,9 @@ export class TaigaClient {
     const items = await this.unwrap<T[]>(response);
     const total = Number(response.headers.get("x-pagination-count") ?? items.length);
     const page = Number(response.headers.get("x-pagination-current") ?? 1);
-    return { items, total, page, hasMore: page * items.length < total };
+    const pageSize = Number(params?.page_size ?? 0) || items.length;
+    const consumed = (page - 1) * pageSize + items.length;
+    return { items, total, page, hasMore: items.length > 0 && consumed < total };
   }
 
   async post<T>(path: string, body: unknown): Promise<T> {
@@ -115,8 +123,11 @@ export class TaigaClient {
 
     if (response.status === 400) {
       const body = await this.parse(response);
-      const message = extractMessage(body) ?? "";
-      if (/version/i.test(message)) {
+      const hasVersionError =
+        body !== null &&
+        typeof body === "object" &&
+        "version" in (body as Record<string, unknown>);
+      if (hasVersionError) {
         throw new TaigaError(
           `This item changed in Taiga while we were editing it.`,
           { status: 400, hint: "Re-read the item and reapply the change." },
@@ -141,10 +152,7 @@ export class TaigaClient {
   }
 
   async getBinary(url: string): Promise<{ data: Buffer; contentType: string }> {
-    const token = await this.auth.getToken();
-    const response = await this.fetchImpl(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await this.sendWithRetry(url, { method: "GET" });
     if (!response.ok) {
       throw describeHttpError(response.status, await response.text());
     }
