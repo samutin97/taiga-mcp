@@ -7194,6 +7194,118 @@ var require_dist = __commonJS({
   }
 });
 
+// node_modules/zod/v3/external.js
+var external_exports = {};
+__export(external_exports, {
+  BRAND: () => BRAND,
+  DIRTY: () => DIRTY,
+  EMPTY_PATH: () => EMPTY_PATH,
+  INVALID: () => INVALID,
+  NEVER: () => NEVER,
+  OK: () => OK,
+  ParseStatus: () => ParseStatus,
+  Schema: () => ZodType,
+  ZodAny: () => ZodAny,
+  ZodArray: () => ZodArray,
+  ZodBigInt: () => ZodBigInt,
+  ZodBoolean: () => ZodBoolean,
+  ZodBranded: () => ZodBranded,
+  ZodCatch: () => ZodCatch,
+  ZodDate: () => ZodDate,
+  ZodDefault: () => ZodDefault,
+  ZodDiscriminatedUnion: () => ZodDiscriminatedUnion,
+  ZodEffects: () => ZodEffects,
+  ZodEnum: () => ZodEnum,
+  ZodError: () => ZodError,
+  ZodFirstPartyTypeKind: () => ZodFirstPartyTypeKind,
+  ZodFunction: () => ZodFunction,
+  ZodIntersection: () => ZodIntersection,
+  ZodIssueCode: () => ZodIssueCode,
+  ZodLazy: () => ZodLazy,
+  ZodLiteral: () => ZodLiteral,
+  ZodMap: () => ZodMap,
+  ZodNaN: () => ZodNaN,
+  ZodNativeEnum: () => ZodNativeEnum,
+  ZodNever: () => ZodNever,
+  ZodNull: () => ZodNull,
+  ZodNullable: () => ZodNullable,
+  ZodNumber: () => ZodNumber,
+  ZodObject: () => ZodObject,
+  ZodOptional: () => ZodOptional,
+  ZodParsedType: () => ZodParsedType,
+  ZodPipeline: () => ZodPipeline,
+  ZodPromise: () => ZodPromise,
+  ZodReadonly: () => ZodReadonly,
+  ZodRecord: () => ZodRecord,
+  ZodSchema: () => ZodType,
+  ZodSet: () => ZodSet,
+  ZodString: () => ZodString,
+  ZodSymbol: () => ZodSymbol,
+  ZodTransformer: () => ZodEffects,
+  ZodTuple: () => ZodTuple,
+  ZodType: () => ZodType,
+  ZodUndefined: () => ZodUndefined,
+  ZodUnion: () => ZodUnion,
+  ZodUnknown: () => ZodUnknown,
+  ZodVoid: () => ZodVoid,
+  addIssueToContext: () => addIssueToContext,
+  any: () => anyType,
+  array: () => arrayType,
+  bigint: () => bigIntType,
+  boolean: () => booleanType,
+  coerce: () => coerce,
+  custom: () => custom,
+  date: () => dateType,
+  datetimeRegex: () => datetimeRegex,
+  defaultErrorMap: () => en_default,
+  discriminatedUnion: () => discriminatedUnionType,
+  effect: () => effectsType,
+  enum: () => enumType,
+  function: () => functionType,
+  getErrorMap: () => getErrorMap,
+  getParsedType: () => getParsedType,
+  instanceof: () => instanceOfType,
+  intersection: () => intersectionType,
+  isAborted: () => isAborted,
+  isAsync: () => isAsync,
+  isDirty: () => isDirty,
+  isValid: () => isValid,
+  late: () => late,
+  lazy: () => lazyType,
+  literal: () => literalType,
+  makeIssue: () => makeIssue,
+  map: () => mapType,
+  nan: () => nanType,
+  nativeEnum: () => nativeEnumType,
+  never: () => neverType,
+  null: () => nullType,
+  nullable: () => nullableType,
+  number: () => numberType,
+  object: () => objectType,
+  objectUtil: () => objectUtil,
+  oboolean: () => oboolean,
+  onumber: () => onumber,
+  optional: () => optionalType,
+  ostring: () => ostring,
+  pipeline: () => pipelineType,
+  preprocess: () => preprocessType,
+  promise: () => promiseType,
+  quotelessJson: () => quotelessJson,
+  record: () => recordType,
+  set: () => setType,
+  setErrorMap: () => setErrorMap,
+  strictObject: () => strictObjectType,
+  string: () => stringType,
+  symbol: () => symbolType,
+  transformer: () => effectsType,
+  tuple: () => tupleType,
+  undefined: () => undefinedType,
+  union: () => unionType,
+  unknown: () => unknownType,
+  util: () => util,
+  void: () => voidType
+});
+
 // node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
@@ -7347,6 +7459,10 @@ var ZodIssueCode = util.arrayToEnum([
   "not_multiple_of",
   "not_finite"
 ]);
+var quotelessJson = (obj) => {
+  const json = JSON.stringify(obj, null, 2);
+  return json.replace(/"([^"]+)":/g, "$1:");
+};
 var ZodError = class _ZodError extends Error {
   get errors() {
     return this.issues;
@@ -7547,6 +7663,9 @@ var en_default = errorMap;
 
 // node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
+function setErrorMap(map) {
+  overrideErrorMap = map;
+}
 function getErrorMap() {
   return overrideErrorMap;
 }
@@ -7577,6 +7696,7 @@ var makeIssue = (params) => {
     message: errorMessage
   };
 };
+var EMPTY_PATH = [];
 function addIssueToContext(ctx, issueData) {
   const overrideMap = getErrorMap();
   const issue2 = makeIssue({
@@ -10994,6 +11114,33 @@ ZodReadonly.create = (type, params) => {
     ...processCreateParams(params)
   });
 };
+function cleanParams(params, data) {
+  const p = typeof params === "function" ? params(data) : typeof params === "string" ? { message: params } : params;
+  const p2 = typeof p === "string" ? { message: p } : p;
+  return p2;
+}
+function custom(check2, _params = {}, fatal) {
+  if (check2)
+    return ZodAny.create().superRefine((data, ctx) => {
+      const r = check2(data);
+      if (r instanceof Promise) {
+        return r.then((r2) => {
+          if (!r2) {
+            const params = cleanParams(_params, data);
+            const _fatal = params.fatal ?? fatal ?? true;
+            ctx.addIssue({ code: "custom", ...params, fatal: _fatal });
+          }
+        });
+      }
+      if (!r) {
+        const params = cleanParams(_params, data);
+        const _fatal = params.fatal ?? fatal ?? true;
+        ctx.addIssue({ code: "custom", ...params, fatal: _fatal });
+      }
+      return;
+    });
+  return ZodAny.create();
+}
 var late = {
   object: ZodObject.lazycreate
 };
@@ -11036,6 +11183,9 @@ var ZodFirstPartyTypeKind;
   ZodFirstPartyTypeKind2["ZodPipeline"] = "ZodPipeline";
   ZodFirstPartyTypeKind2["ZodReadonly"] = "ZodReadonly";
 })(ZodFirstPartyTypeKind || (ZodFirstPartyTypeKind = {}));
+var instanceOfType = (cls, params = {
+  message: `Input not instance of ${cls.name}`
+}) => custom((data) => data instanceof cls, params);
 var stringType = ZodString.create;
 var numberType = ZodNumber.create;
 var nanType = ZodNaN.create;
@@ -11070,9 +11220,23 @@ var optionalType = ZodOptional.create;
 var nullableType = ZodNullable.create;
 var preprocessType = ZodEffects.createWithPreprocess;
 var pipelineType = ZodPipeline.create;
+var ostring = () => stringType().optional();
+var onumber = () => numberType().optional();
+var oboolean = () => booleanType().optional();
+var coerce = {
+  string: (arg) => ZodString.create({ ...arg, coerce: true }),
+  number: (arg) => ZodNumber.create({ ...arg, coerce: true }),
+  boolean: (arg) => ZodBoolean.create({
+    ...arg,
+    coerce: true
+  }),
+  bigint: (arg) => ZodBigInt.create({ ...arg, coerce: true }),
+  date: (arg) => ZodDate.create({ ...arg, coerce: true })
+};
+var NEVER = INVALID;
 
 // node_modules/zod/v4/core/core.js
-var NEVER = Object.freeze({
+var NEVER2 = Object.freeze({
   status: "aborted"
 });
 // @__NO_SIDE_EFFECTS__
@@ -15745,7 +15909,7 @@ function check(fn) {
   ch._zod.check = fn;
   return ch;
 }
-function custom(fn, _params) {
+function custom2(fn, _params) {
   return _custom(ZodCustom, fn ?? (() => true), _params);
 }
 function refine(fn, _params = {}) {
@@ -15783,7 +15947,7 @@ var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
 var JSONRPC_VERSION = "2.0";
-var AssertObjectSchema = custom((v) => v !== null && (typeof v === "object" || typeof v === "function"));
+var AssertObjectSchema = custom2((v) => v !== null && (typeof v === "object" || typeof v === "function"));
 var ProgressTokenSchema = union([string2(), number2().int()]);
 var CursorSchema = string2();
 var TaskCreationParamsSchema = looseObject({
@@ -18667,8 +18831,8 @@ var Protocol = class {
     this._taskStore = _options?.taskStore;
     this._taskMessageQueue = _options?.taskMessageQueue;
     if (this._taskStore) {
-      this.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
-        const task = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
+      this.setRequestHandler(GetTaskRequestSchema, async (request, extra2) => {
+        const task = await this._taskStore.getTask(request.params.taskId, extra2.sessionId);
         if (!task) {
           throw new McpError(ErrorCode.InvalidParams, "Failed to retrieve task: Task not found");
         }
@@ -18676,12 +18840,12 @@ var Protocol = class {
           ...task
         };
       });
-      this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
+      this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra2) => {
         const handleTaskResult = async () => {
           const taskId = request.params.taskId;
           if (this._taskMessageQueue) {
             let queuedMessage;
-            while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId)) {
+            while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra2.sessionId)) {
               if (queuedMessage.type === "response" || queuedMessage.type === "error") {
                 const message = queuedMessage.message;
                 const requestId = message.id;
@@ -18701,19 +18865,19 @@ var Protocol = class {
                 }
                 continue;
               }
-              await this._transport?.send(queuedMessage.message, { relatedRequestId: extra.requestId });
+              await this._transport?.send(queuedMessage.message, { relatedRequestId: extra2.requestId });
             }
           }
-          const task = await this._taskStore.getTask(taskId, extra.sessionId);
+          const task = await this._taskStore.getTask(taskId, extra2.sessionId);
           if (!task) {
             throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
           }
           if (!isTerminal(task.status)) {
-            await this._waitForTaskUpdate(taskId, extra.signal);
+            await this._waitForTaskUpdate(taskId, extra2.signal);
             return await handleTaskResult();
           }
           if (isTerminal(task.status)) {
-            const result = await this._taskStore.getTaskResult(taskId, extra.sessionId);
+            const result = await this._taskStore.getTaskResult(taskId, extra2.sessionId);
             this._clearTaskQueue(taskId);
             return {
               ...result,
@@ -18729,9 +18893,9 @@ var Protocol = class {
         };
         return await handleTaskResult();
       });
-      this.setRequestHandler(ListTasksRequestSchema, async (request, extra) => {
+      this.setRequestHandler(ListTasksRequestSchema, async (request, extra2) => {
         try {
-          const { tasks, nextCursor } = await this._taskStore.listTasks(request.params?.cursor, extra.sessionId);
+          const { tasks, nextCursor } = await this._taskStore.listTasks(request.params?.cursor, extra2.sessionId);
           return {
             tasks,
             nextCursor,
@@ -18741,18 +18905,18 @@ var Protocol = class {
           throw new McpError(ErrorCode.InvalidParams, `Failed to list tasks: ${error2 instanceof Error ? error2.message : String(error2)}`);
         }
       });
-      this.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
+      this.setRequestHandler(CancelTaskRequestSchema, async (request, extra2) => {
         try {
-          const task = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
+          const task = await this._taskStore.getTask(request.params.taskId, extra2.sessionId);
           if (!task) {
             throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
           }
           if (isTerminal(task.status)) {
             throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
           }
-          await this._taskStore.updateTaskStatus(request.params.taskId, "cancelled", "Client cancelled task execution.", extra.sessionId);
+          await this._taskStore.updateTaskStatus(request.params.taskId, "cancelled", "Client cancelled task execution.", extra2.sessionId);
           this._clearTaskQueue(request.params.taskId);
-          const cancelledTask = await this._taskStore.getTask(request.params.taskId, extra.sessionId);
+          const cancelledTask = await this._taskStore.getTask(request.params.taskId, extra2.sessionId);
           if (!cancelledTask) {
             throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request.params.taskId}`);
           }
@@ -18830,12 +18994,12 @@ var Protocol = class {
       this._onerror(error2);
     };
     const _onmessage = this._transport?.onmessage;
-    this._transport.onmessage = (message, extra) => {
-      _onmessage?.(message, extra);
+    this._transport.onmessage = (message, extra2) => {
+      _onmessage?.(message, extra2);
       if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
         this._onresponse(message);
       } else if (isJSONRPCRequest(message)) {
-        this._onrequest(message, extra);
+        this._onrequest(message, extra2);
       } else if (isJSONRPCNotification(message)) {
         this._onnotification(message);
       } else {
@@ -18875,7 +19039,7 @@ var Protocol = class {
     }
     Promise.resolve().then(() => handler(notification)).catch((error2) => this._onerror(new Error(`Uncaught error in notification handler: ${error2}`)));
   }
-  _onrequest(request, extra) {
+  _onrequest(request, extra2) {
     const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
     const capturedTransport = this._transport;
     const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
@@ -18930,14 +19094,14 @@ var Protocol = class {
         }
         return await this.request(r, resultSchema, requestOptions);
       },
-      authInfo: extra?.authInfo,
+      authInfo: extra2?.authInfo,
       requestId: request.id,
-      requestInfo: extra?.requestInfo,
+      requestInfo: extra2?.requestInfo,
       taskId: relatedTaskId,
       taskStore,
       taskRequestedTtl: taskCreationParams?.ttl,
-      closeSSEStream: extra?.closeSSEStream,
-      closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
+      closeSSEStream: extra2?.closeSSEStream,
+      closeStandaloneSSEStream: extra2?.closeStandaloneSSEStream
     };
     Promise.resolve().then(() => {
       if (taskCreationParams) {
@@ -19390,9 +19554,9 @@ var Protocol = class {
   setRequestHandler(requestSchema, handler) {
     const method = getMethodLiteral(requestSchema);
     this.assertRequestHandlerCapability(method);
-    this._requestHandlers.set(method, (request, extra) => {
+    this._requestHandlers.set(method, (request, extra2) => {
       const parsed = parseWithCompat(requestSchema, request);
-      return Promise.resolve(handler(parsed, extra));
+      return Promise.resolve(handler(parsed, extra2));
     });
   }
   /**
@@ -19928,8 +20092,8 @@ var Server = class extends Protocol {
     this.setRequestHandler(InitializeRequestSchema, (request) => this._oninitialize(request));
     this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
     if (this._capabilities.logging) {
-      this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
-        const transportSessionId = extra.sessionId || extra.requestInfo?.headers["mcp-session-id"] || void 0;
+      this.setRequestHandler(SetLevelRequestSchema, async (request, extra2) => {
+        const transportSessionId = extra2.sessionId || extra2.requestInfo?.headers["mcp-session-id"] || void 0;
         const { level } = request.params;
         const parseResult = LoggingLevelSchema.safeParse(level);
         if (parseResult.success) {
@@ -19980,14 +20144,14 @@ var Server = class extends Protocol {
     }
     const method = methodValue;
     if (method === "tools/call") {
-      const wrappedHandler = async (request, extra) => {
+      const wrappedHandler = async (request, extra2) => {
         const validatedRequest = safeParse2(CallToolRequestSchema, request);
         if (!validatedRequest.success) {
           const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
           throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
         }
         const { params } = validatedRequest.data;
-        const result = await Promise.resolve(handler(request, extra));
+        const result = await Promise.resolve(handler(request, extra2));
         if (params.task) {
           const taskValidationResult = safeParse2(CreateTaskResultSchema, result);
           if (!taskValidationResult.success) {
@@ -20448,7 +20612,7 @@ var McpServer = class {
         return toolDefinition;
       })
     }));
-    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra2) => {
       try {
         const tool = this._registeredTools[request.params.name];
         if (!tool) {
@@ -20467,10 +20631,10 @@ var McpServer = class {
           throw new McpError(ErrorCode.MethodNotFound, `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`);
         }
         if (taskSupport === "optional" && !isTaskRequest && isTaskHandler) {
-          return await this.handleAutomaticTaskPolling(tool, request, extra);
+          return await this.handleAutomaticTaskPolling(tool, request, extra2);
         }
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-        const result = await this.executeToolHandler(tool, args, extra);
+        const result = await this.executeToolHandler(tool, args, extra2);
         if (isTaskRequest) {
           return result;
         }
@@ -20548,14 +20712,14 @@ var McpServer = class {
   /**
    * Executes a tool handler (either regular or task-based).
    */
-  async executeToolHandler(tool, args, extra) {
+  async executeToolHandler(tool, args, extra2) {
     const handler = tool.handler;
     const isTaskHandler = "createTask" in handler;
     if (isTaskHandler) {
-      if (!extra.taskStore) {
+      if (!extra2.taskStore) {
         throw new Error("No task store provided.");
       }
-      const taskExtra = { ...extra, taskStore: extra.taskStore };
+      const taskExtra = { ...extra2, taskStore: extra2.taskStore };
       if (tool.inputSchema) {
         const typedHandler = handler;
         return await Promise.resolve(typedHandler.createTask(args, taskExtra));
@@ -20566,22 +20730,22 @@ var McpServer = class {
     }
     if (tool.inputSchema) {
       const typedHandler = handler;
-      return await Promise.resolve(typedHandler(args, extra));
+      return await Promise.resolve(typedHandler(args, extra2));
     } else {
       const typedHandler = handler;
-      return await Promise.resolve(typedHandler(extra));
+      return await Promise.resolve(typedHandler(extra2));
     }
   }
   /**
    * Handles automatic task polling for tools with taskSupport 'optional'.
    */
-  async handleAutomaticTaskPolling(tool, request, extra) {
-    if (!extra.taskStore) {
+  async handleAutomaticTaskPolling(tool, request, extra2) {
+    if (!extra2.taskStore) {
       throw new Error("No task store provided for task-capable tool.");
     }
     const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
     const handler = tool.handler;
-    const taskExtra = { ...extra, taskStore: extra.taskStore };
+    const taskExtra = { ...extra2, taskStore: extra2.taskStore };
     const createTaskResult = args ? await Promise.resolve(handler.createTask(args, taskExtra)) : (
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await Promise.resolve(handler.createTask(taskExtra))
@@ -20591,13 +20755,13 @@ var McpServer = class {
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
       await new Promise((resolve) => setTimeout(resolve, pollInterval));
-      const updatedTask = await extra.taskStore.getTask(taskId);
+      const updatedTask = await extra2.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
       }
       task = updatedTask;
     }
-    return await extra.taskStore.getTaskResult(taskId);
+    return await extra2.taskStore.getTaskResult(taskId);
   }
   setCompletionRequestHandler() {
     if (this._completionHandlerInitialized) {
@@ -20671,7 +20835,7 @@ var McpServer = class {
         listChanged: true
       }
     });
-    this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+    this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra2) => {
       const resources = Object.entries(this._registeredResources).filter(([_, resource]) => resource.enabled).map(([uri, resource]) => ({
         uri,
         name: resource.name,
@@ -20682,7 +20846,7 @@ var McpServer = class {
         if (!template.resourceTemplate.listCallback) {
           continue;
         }
-        const result = await template.resourceTemplate.listCallback(extra);
+        const result = await template.resourceTemplate.listCallback(extra2);
         for (const resource of result.resources) {
           templateResources.push({
             ...template.metadata,
@@ -20701,19 +20865,19 @@ var McpServer = class {
       }));
       return { resourceTemplates };
     });
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra2) => {
       const uri = new URL(request.params.uri);
       const resource = this._registeredResources[uri.toString()];
       if (resource) {
         if (!resource.enabled) {
           throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} disabled`);
         }
-        return resource.readCallback(uri, extra);
+        return resource.readCallback(uri, extra2);
       }
       for (const template of Object.values(this._registeredResourceTemplates)) {
         const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
         if (variables) {
-          return template.readCallback(uri, variables, extra);
+          return template.readCallback(uri, variables, extra2);
         }
       }
       throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
@@ -20741,7 +20905,7 @@ var McpServer = class {
         };
       })
     }));
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra2) => {
       const prompt = this._registeredPrompts[request.params.name];
       if (!prompt) {
         throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -20759,10 +20923,10 @@ var McpServer = class {
         }
         const args = parseResult.data;
         const cb = prompt.callback;
-        return await Promise.resolve(cb(args, extra));
+        return await Promise.resolve(cb(args, extra2));
       } else {
         const cb = prompt.callback;
-        return await Promise.resolve(cb(extra));
+        return await Promise.resolve(cb(extra2));
       }
     });
     this._promptHandlersInitialized = true;
@@ -21265,17 +21429,596 @@ var StdioServerTransport = class {
   }
 };
 
-// src/index.ts
-function createServer() {
-  const server = new McpServer({ name: "taiga", version: "0.1.0" });
+// src/config.ts
+function loadConfig(env = process.env) {
+  const url = (env.TAIGA_URL ?? "").trim().replace(/\/+$/, "");
+  const username = (env.TAIGA_USERNAME ?? "").trim();
+  const password = env.TAIGA_PASSWORD ?? "";
+  const missing = [
+    !url && "TAIGA_URL",
+    !username && "TAIGA_USERNAME",
+    !password && "TAIGA_PASSWORD"
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(", ")}. Set them in your Claude Code settings before using the Taiga plugin.`
+    );
+  }
+  const defaultProject = env.TAIGA_PROJECT?.trim() || void 0;
+  return { url, username, password, defaultProject };
+}
+
+// src/errors.ts
+var TaigaError = class extends Error {
+  status;
+  hint;
+  constructor(message, options = {}) {
+    super(options.hint ? `${message}
+${options.hint}` : message);
+    this.name = "TaigaError";
+    this.status = options.status;
+    this.hint = options.hint;
+  }
+};
+function extractMessage(body) {
+  if (typeof body === "string" && body.trim()) return body.trim().slice(0, 500);
+  if (body && typeof body === "object") {
+    const record2 = body;
+    for (const key of ["_error_message", "detail", "non_field_errors"]) {
+      const candidate = record2[key];
+      if (typeof candidate === "string") return candidate;
+      if (Array.isArray(candidate) && typeof candidate[0] === "string") return candidate[0];
+    }
+    const fieldErrors = Object.entries(record2).filter(([key]) => !key.startsWith("_")).map(
+      ([key, value]) => Array.isArray(value) ? `${key}: ${value.join(", ")}` : void 0
+    ).filter(Boolean);
+    if (fieldErrors.length > 0) return fieldErrors.join("; ");
+  }
+  return void 0;
+}
+function describeHttpError(status, body) {
+  const detail = extractMessage(body);
+  switch (status) {
+    case 401:
+      return new TaigaError("Taiga rejected the credentials.", {
+        status,
+        hint: "Check TAIGA_USERNAME and TAIGA_PASSWORD."
+      });
+    case 403:
+      return new TaigaError(
+        detail ?? "Taiga refused the request: not enough permissions.",
+        { status, hint: "Your account may lack the required project role." }
+      );
+    case 404:
+      return new TaigaError(detail ?? "Not found in Taiga.", { status });
+    default:
+      return new TaigaError(detail ?? `Taiga returned HTTP ${status}.`, { status });
+  }
+}
+
+// src/auth.ts
+var TaigaAuth = class {
+  constructor(config2, fetchImpl = fetch) {
+    this.config = config2;
+    this.fetchImpl = fetchImpl;
+  }
+  token;
+  pending;
+  authenticatedUserId;
+  get userId() {
+    return this.authenticatedUserId;
+  }
+  invalidate() {
+    this.token = void 0;
+    this.pending = void 0;
+  }
+  async getToken() {
+    if (this.token) return this.token;
+    this.pending ??= this.login().finally(() => {
+      this.pending = void 0;
+    });
+    return this.pending;
+  }
+  async login() {
+    let response;
+    try {
+      response = await this.fetchImpl(`${this.config.url}/api/v1/auth`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "normal",
+          username: this.config.username,
+          password: this.config.password
+        })
+      });
+    } catch (cause) {
+      throw new TaigaError(`Cannot reach Taiga at ${this.config.url}.`, {
+        hint: "Check TAIGA_URL and that the instance is running."
+      });
+    }
+    const body = await response.json().catch(() => void 0);
+    if (!response.ok) {
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        throw new TaigaError(`Taiga rejected the login for user "${this.config.username}".`, {
+          status: response.status,
+          hint: "Check TAIGA_USERNAME and TAIGA_PASSWORD."
+        });
+      }
+      throw describeHttpError(response.status, body);
+    }
+    const record2 = body ?? {};
+    const token = record2.auth_token;
+    if (typeof token !== "string") {
+      throw describeHttpError(response.status, body);
+    }
+    this.token = token;
+    this.authenticatedUserId = typeof record2.id === "number" ? record2.id : void 0;
+    return token;
+  }
+};
+
+// src/client.ts
+var TaigaClient = class {
+  constructor(config2, auth, fetchImpl = fetch) {
+    this.auth = auth;
+    this.fetchImpl = fetchImpl;
+    this.base = `${config2.url}/api/v1`;
+  }
+  base;
+  buildUrl(path, params) {
+    const url = new URL(this.base + path);
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value !== void 0) url.searchParams.set(key, String(value));
+    }
+    return url.toString();
+  }
+  /** Perform a request against an absolute URL, re-authenticating once on 401. */
+  async sendWithRetry(url, init) {
+    const send = async () => {
+      const token = await this.auth.getToken();
+      const headers = {
+        ...init.headers,
+        Authorization: `Bearer ${token}`
+      };
+      try {
+        return await this.fetchImpl(url, { ...init, headers });
+      } catch {
+        throw new TaigaError(`Cannot reach Taiga at ${url}.`, {
+          hint: "Check TAIGA_URL and that the instance is running."
+        });
+      }
+    };
+    let response = await send();
+    if (response.status === 401) {
+      this.auth.invalidate();
+      response = await send();
+    }
+    return response;
+  }
+  /** Perform a request, re-authenticating once if the token has expired. */
+  async request(path, init, params) {
+    return this.sendWithRetry(this.buildUrl(path, params), init);
+  }
+  async parse(response) {
+    if (response.status === 204) return void 0;
+    const text = await response.text();
+    if (!text) return void 0;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+  async unwrap(response) {
+    const body = await this.parse(response);
+    if (!response.ok) throw describeHttpError(response.status, body);
+    return body;
+  }
+  async get(path, params) {
+    return this.unwrap(await this.request(path, { method: "GET" }, params));
+  }
+  async list(path, params) {
+    const response = await this.request(path, { method: "GET" }, params);
+    const items = await this.unwrap(response);
+    const total = Number(response.headers.get("x-pagination-count") ?? items.length);
+    const page = Number(response.headers.get("x-pagination-current") ?? 1);
+    const pageSize = Number(params?.page_size ?? 0) || items.length;
+    const consumed = (page - 1) * pageSize + items.length;
+    return { items, total, page, hasMore: items.length > 0 && consumed < total };
+  }
+  async post(path, body) {
+    return this.unwrap(
+      await this.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      })
+    );
+  }
+  /**
+   * Taiga uses optimistic locking: PATCH needs the object's current version.
+   * Read it here so callers never have to think about it.
+   */
+  async patch(path, id, changes) {
+    const current = await this.get(`${path}/${id}`);
+    const response = await this.request(`${path}/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...changes, version: current.version })
+    });
+    if (response.status === 400) {
+      const body = await this.parse(response);
+      const hasVersionError = body !== null && typeof body === "object" && "version" in body;
+      if (hasVersionError) {
+        throw new TaigaError(
+          `This item changed in Taiga while we were editing it.`,
+          { status: 400, hint: "Re-read the item and reapply the change." }
+        );
+      }
+      throw describeHttpError(400, body);
+    }
+    return this.unwrap(response);
+  }
+  async remove(path, id) {
+    const response = await this.request(`${path}/${id}`, { method: "DELETE" });
+    if (!response.ok && response.status !== 204) {
+      throw describeHttpError(response.status, await this.parse(response));
+    }
+  }
+  async postForm(path, form) {
+    return this.unwrap(
+      await this.request(path, { method: "POST", body: form })
+    );
+  }
+  async getBinary(url) {
+    const response = await this.sendWithRetry(url, { method: "GET" });
+    if (!response.ok) {
+      throw describeHttpError(response.status, await response.text());
+    }
+    return {
+      data: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get("content-type") ?? "application/octet-stream"
+    };
+  }
+};
+
+// src/schema-cache.ts
+var LOOKUP_PATHS = {
+  "userstory-status": "/userstory-statuses",
+  "task-status": "/task-statuses",
+  "issue-status": "/issue-statuses",
+  priority: "/priorities",
+  severity: "/severities",
+  "issue-type": "/issue-types",
+  points: "/points",
+  role: "/roles",
+  member: "/memberships"
+};
+var DEFAULT_TTL_MS = 10 * 60 * 1e3;
+var SchemaCache = class {
+  constructor(client, options) {
+    this.client = client;
+    this.options = options;
+    this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  }
+  lookups = /* @__PURE__ */ new Map();
+  projects = /* @__PURE__ */ new Map();
+  slugById = /* @__PURE__ */ new Map();
+  ttlMs;
+  invalidate(projectId) {
+    if (projectId === void 0) {
+      this.lookups.clear();
+      this.projects.clear();
+      this.slugById.clear();
+      return;
+    }
+    for (const key of [...this.lookups.keys()]) {
+      if (key.startsWith(`${projectId}:`)) this.lookups.delete(key);
+    }
+    this.slugById.delete(projectId);
+  }
+  async resolveProject(ref) {
+    const value = ref ?? this.options.defaultProject;
+    if (value === void 0 || value === "") {
+      throw new TaigaError("No Taiga project specified.", {
+        hint: "Pass `project` explicitly, or set TAIGA_PROJECT to a project id or slug."
+      });
+    }
+    if (typeof value === "number") return value;
+    if (/^\d+$/.test(value)) return Number(value);
+    const cached2 = this.projects.get(value);
+    if (cached2 !== void 0) return cached2;
+    const project2 = await this.client.get("/projects/by_slug", {
+      slug: value
+    });
+    this.projects.set(value, project2.id);
+    return project2.id;
+  }
+  /** Project slug by id, memoised — /resolver needs the slug, not the id. */
+  async projectSlug(projectId) {
+    const cached2 = this.slugById.get(projectId);
+    if (cached2 !== void 0) return cached2;
+    const project2 = await this.client.get(`/projects/${projectId}`);
+    this.slugById.set(projectId, project2.slug);
+    return project2.slug;
+  }
+  /** Turn `#42` into an internal object id via Taiga's resolver endpoint. */
+  async resolveRef(projectId, resolverKey, ref) {
+    const slug = await this.projectSlug(projectId);
+    const resolved = await this.client.get("/resolver", {
+      project: slug,
+      [resolverKey]: ref
+    });
+    const id = resolved[resolverKey];
+    if (typeof id !== "number") {
+      throw new TaigaError(`No item #${ref} in project ${slug}.`);
+    }
+    return id;
+  }
+  async entries(projectId, kind) {
+    const key = `${projectId}:${kind}`;
+    const hit = this.lookups.get(key);
+    if (hit && Date.now() - hit.at < this.ttlMs) return hit.entries;
+    const raw = await this.client.get(
+      LOOKUP_PATHS[kind],
+      { project: projectId }
+    );
+    const entries = kind === "member" ? raw.filter((row) => typeof row.user === "number").map((row) => ({
+      id: row.user,
+      name: String(row.full_name ?? row.email ?? ""),
+      qualifier: row.email ? String(row.email) : void 0
+    })) : raw.map((row) => ({ id: row.id, name: String(row.name) }));
+    this.lookups.set(key, { at: Date.now(), entries });
+    return entries;
+  }
+  async resolveLookup(projectId, kind, value) {
+    if (typeof value === "number") return value;
+    const entries = await this.entries(projectId, kind);
+    const needle = value.trim().toLowerCase();
+    const matches = entries.filter((entry) => entry.name.toLowerCase() === needle);
+    if (matches.length === 1) return matches[0].id;
+    if (matches.length > 1) {
+      const options = matches.map((entry) => entry.qualifier ?? String(entry.id)).join(", ");
+      throw new TaigaError(
+        `"${value}" matches more than one ${kind} in this project.`,
+        { hint: `Disambiguate using one of: ${options}` }
+      );
+    }
+    const valid = entries.map((entry) => entry.name).join(", ");
+    throw new TaigaError(`"${value}" is not a valid ${kind} in this project.`, {
+      hint: `Valid values: ${valid}`
+    });
+  }
+  /**
+   * Reverse lookup: numeric id to display name, for fields Taiga returns as
+   * bare ids with no *_extra_info companion (issue priority/severity/type,
+   * wiki last_modifier). Built from the same cached entries as resolveLookup.
+   */
+  async labelMap(projectId, kind) {
+    const entries = await this.entries(projectId, kind);
+    return new Map(entries.map((entry) => [entry.id, entry.name]));
+  }
+  async schema(projectId) {
+    const project2 = await this.client.get(
+      `/projects/${projectId}`
+    );
+    this.slugById.set(projectId, project2.slug);
+    const kinds = Object.keys(LOOKUP_PATHS);
+    const collected = await Promise.all(
+      kinds.map(async (kind) => [kind, await this.entries(projectId, kind)])
+    );
+    return {
+      id: project2.id,
+      slug: project2.slug,
+      name: project2.name,
+      lookups: Object.fromEntries(collected)
+    };
+  }
+};
+
+// src/context.ts
+function createContext(config2 = loadConfig()) {
+  const auth = new TaigaAuth(config2);
+  const client = new TaigaClient(config2, auth);
+  const cache = new SchemaCache(client, { defaultProject: config2.defaultProject });
+  return { config: config2, auth, client, cache };
+}
+var FIELDS_SCHEMA = external_exports.union([external_exports.literal("slim"), external_exports.literal("full"), external_exports.array(external_exports.string())]).optional().describe(
+  "How much detail to return: 'slim' (default, ~10 key fields), 'full' (every field Taiga returns \u2014 expensive), or an explicit list of field names."
+);
+function asFieldMode(value) {
+  if (value === "full") return "full";
+  if (Array.isArray(value)) return value;
+  return "slim";
+}
+function ok(payload) {
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(payload, null, 1) }
+    ]
+  };
+}
+function guard(handler) {
+  return async (args) => {
+    try {
+      return await handler(args);
+    } catch (error2) {
+      const message = error2 instanceof Error ? error2.message : String(error2);
+      return {
+        isError: true,
+        content: [{ type: "text", text: message }]
+      };
+    }
+  };
+}
+
+// src/tools/whoami.ts
+function registerWhoamiTool(server, ctx) {
   server.tool(
     "taiga_whoami",
-    "Show the authenticated Taiga user, their projects and roles. Use this first to confirm the connection works.",
+    "Show the authenticated Taiga user and the projects they can access. Use this to verify the connection and to discover project slugs.",
     {},
-    async () => ({
-      content: [{ type: "text", text: "not implemented yet" }]
+    guard(async () => {
+      const me = await ctx.client.get("/users/me");
+      const projects = await ctx.client.list("/projects", {
+        member: me.id
+      });
+      return ok({
+        id: me.id,
+        username: me.username,
+        full_name: me.full_name_display,
+        email: me.email,
+        default_project: ctx.config.defaultProject ?? null,
+        projects: projects.items.map((p) => ({
+          id: p.id,
+          slug: p.slug,
+          name: p.name
+        }))
+      });
     })
   );
+}
+
+// src/projections.ts
+var extra = (key, field) => (raw) => {
+  const info = raw[key];
+  return info ? info[field] ?? null : null;
+};
+var labelled = (key, map) => (raw, labels) => {
+  const id = raw[key];
+  if (typeof id !== "number") return null;
+  return labels[map]?.get(id) ?? id;
+};
+var tags = (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : [];
+var plain = (key) => (raw) => raw[key] ?? null;
+var SLIM = {
+  userstory: {
+    ref: plain("ref"),
+    subject: plain("subject"),
+    status: extra("status_extra_info", "name"),
+    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    sprint: plain("milestone_name"),
+    points: plain("total_points"),
+    tags,
+    is_blocked: plain("is_blocked"),
+    is_closed: plain("is_closed"),
+    total_comments: plain("total_comments")
+  },
+  task: {
+    ref: plain("ref"),
+    subject: plain("subject"),
+    status: extra("status_extra_info", "name"),
+    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    user_story: extra("user_story_extra_info", "ref"),
+    tags,
+    is_closed: plain("is_closed")
+  },
+  issue: {
+    ref: plain("ref"),
+    subject: plain("subject"),
+    status: extra("status_extra_info", "name"),
+    priority: labelled("priority", "priority"),
+    severity: labelled("severity", "severity"),
+    type: labelled("type", "type"),
+    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    tags,
+    is_closed: plain("is_closed")
+  },
+  epic: {
+    ref: plain("ref"),
+    subject: plain("subject"),
+    status: extra("status_extra_info", "name"),
+    color: plain("color"),
+    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    stories_total: (raw) => raw.user_stories_counts?.total ?? null,
+    stories_progress: (raw) => raw.user_stories_counts?.progress ?? null
+  },
+  sprint: {
+    id: plain("id"),
+    name: plain("name"),
+    slug: plain("slug"),
+    estimated_start: plain("estimated_start"),
+    estimated_finish: plain("estimated_finish"),
+    closed: plain("closed"),
+    total_points: plain("total_points"),
+    closed_points: plain("closed_points")
+  },
+  wiki: {
+    id: plain("id"),
+    slug: plain("slug"),
+    modified_date: plain("modified_date"),
+    last_modifier: labelled("last_modifier", "member")
+  },
+  project: {
+    id: plain("id"),
+    slug: plain("slug"),
+    name: plain("name"),
+    description: plain("description"),
+    is_backlog_activated: plain("is_backlog_activated"),
+    is_kanban_activated: plain("is_kanban_activated"),
+    is_issues_activated: plain("is_issues_activated"),
+    is_wiki_activated: plain("is_wiki_activated"),
+    is_epics_activated: plain("is_epics_activated")
+  }
+};
+function project(resource, raw, fields = "slim", labels = {}) {
+  if (fields === "full") return raw;
+  if (Array.isArray(fields)) {
+    return Object.fromEntries(fields.map((field) => [field, raw[field] ?? null]));
+  }
+  const shape = SLIM[resource];
+  return Object.fromEntries(
+    Object.entries(shape).map(([name, get]) => [name, get(raw, labels)])
+  );
+}
+function projectMany(resource, rows, fields = "slim", labels = {}) {
+  return rows.map((row) => project(resource, row, fields, labels));
+}
+
+// src/tools/project.ts
+var projectRef = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
+function registerProjectTools(server, ctx) {
+  server.tool(
+    "taiga_project_list",
+    "List the Taiga projects the current user is a member of.",
+    { fields: FIELDS_SCHEMA },
+    guard(async ({ fields }) => {
+      const me = await ctx.client.get("/users/me");
+      const result = await ctx.client.list("/projects", {
+        member: me.id
+      });
+      return ok({
+        total: result.total,
+        items: projectMany("project", result.items, asFieldMode(fields))
+      });
+    })
+  );
+  server.tool(
+    "taiga_project_get",
+    "Get one Taiga project by id or slug.",
+    { project: projectRef, fields: FIELDS_SCHEMA },
+    guard(async ({ project: ref, fields }) => {
+      const id = await ctx.cache.resolveProject(ref);
+      const raw = await ctx.client.get(`/projects/${id}`);
+      return ok(project("project", raw, asFieldMode(fields)));
+    })
+  );
+  server.tool(
+    "taiga_project_schema",
+    "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
+    { project: projectRef },
+    guard(async ({ project: ref }) => {
+      const id = await ctx.cache.resolveProject(ref);
+      return ok(await ctx.cache.schema(id));
+    })
+  );
+}
+
+// src/index.ts
+function createServer(ctx = createContext()) {
+  const server = new McpServer({ name: "taiga", version: "0.1.0" });
+  registerWhoamiTool(server, ctx);
+  registerProjectTools(server, ctx);
   return server;
 }
 async function main() {

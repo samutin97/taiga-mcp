@@ -1,20 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import { createContext, type ToolContext } from "./context.js";
+import { registerWhoamiTool } from "./tools/whoami.js";
+import { registerProjectTools } from "./tools/project.js";
 
-export function createServer(): McpServer {
+export function createServer(ctx: ToolContext = createContext()): McpServer {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
-
-  server.tool(
-    "taiga_whoami",
-    "Show the authenticated Taiga user, their projects and roles. " +
-      "Use this first to confirm the connection works.",
-    {},
-    async () => ({
-      content: [{ type: "text" as const, text: "not implemented yet" }],
-    }),
-  );
-
+  registerWhoamiTool(server, ctx);
+  registerProjectTools(server, ctx);
   return server;
 }
 
