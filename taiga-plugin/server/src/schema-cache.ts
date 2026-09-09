@@ -48,6 +48,7 @@ const DEFAULT_TTL_MS = 10 * 60 * 1000;
 export class SchemaCache {
   private readonly lookups = new Map<string, { at: number; entries: LookupEntry[] }>();
   private readonly projects = new Map<string, number>();
+  private readonly slugById = new Map<number, string>();
   private readonly ttlMs: number;
 
   constructor(
@@ -61,11 +62,13 @@ export class SchemaCache {
     if (projectId === undefined) {
       this.lookups.clear();
       this.projects.clear();
+      this.slugById.clear();
       return;
     }
     for (const key of [...this.lookups.keys()]) {
       if (key.startsWith(`${projectId}:`)) this.lookups.delete(key);
     }
+    this.slugById.delete(projectId);
   }
 
   async resolveProject(ref?: string | number): Promise<number> {
@@ -89,16 +92,25 @@ export class SchemaCache {
     return project.id;
   }
 
+  /** Project slug by id, memoised — /resolver needs the slug, not the id. */
+  private async projectSlug(projectId: number): Promise<string> {
+    const cached = this.slugById.get(projectId);
+    if (cached !== undefined) return cached;
+    const project = await this.client.get<{ slug: string }>(`/projects/${projectId}`);
+    this.slugById.set(projectId, project.slug);
+    return project.slug;
+  }
+
   /** Turn `#42` into an internal object id via Taiga's resolver endpoint. */
   async resolveRef(projectId: number, resolverKey: string, ref: number): Promise<number> {
-    const project = await this.client.get<{ slug: string }>(`/projects/${projectId}`);
+    const slug = await this.projectSlug(projectId);
     const resolved = await this.client.get<Record<string, number>>("/resolver", {
-      project: project.slug,
+      project: slug,
       [resolverKey]: ref,
     });
     const id = resolved[resolverKey];
     if (typeof id !== "number") {
-      throw new TaigaError(`No item #${ref} in project ${project.slug}.`);
+      throw new TaigaError(`No item #${ref} in project ${slug}.`);
     }
     return id;
   }
@@ -114,11 +126,15 @@ export class SchemaCache {
     );
     const entries: LookupEntry[] =
       kind === "member"
-        ? raw.map((row) => ({
-            id: row.user as number,
-            name: String(row.full_name ?? row.email ?? ""),
-            qualifier: row.email ? String(row.email) : undefined,
-          }))
+        ? raw
+            // A pending invitation has no user yet; such a row cannot be resolved
+            // to an id, and returning null here would read as "unassign".
+            .filter((row) => typeof row.user === "number")
+            .map((row) => ({
+              id: row.user as number,
+              name: String(row.full_name ?? row.email ?? ""),
+              qualifier: row.email ? String(row.email) : undefined,
+            }))
         : raw.map((row) => ({ id: row.id as number, name: String(row.name) }));
 
     this.lookups.set(key, { at: Date.now(), entries });
@@ -168,6 +184,7 @@ export class SchemaCache {
     const project = await this.client.get<{ id: number; slug: string; name: string }>(
       `/projects/${projectId}`,
     );
+    this.slugById.set(projectId, project.slug);
     const kinds = Object.keys(LOOKUP_PATHS) as LookupKind[];
     const collected = await Promise.all(
       kinds.map(async (kind) => [kind, await this.entries(projectId, kind)] as const),

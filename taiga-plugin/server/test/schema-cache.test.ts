@@ -4,7 +4,15 @@ import { SchemaCache } from "../src/schema-cache.js";
 function fakeClient(routes: Record<string, unknown>) {
   return {
     get: vi.fn(async (path: string, params?: Record<string, unknown>) => {
-      const key = params?.project ? `${path}?project=${params.project}` : path;
+      let key = path;
+      if (params) {
+        const query = new URLSearchParams();
+        for (const [k, v] of Object.entries(params)) {
+          if (v !== undefined) query.set(k, String(v));
+        }
+        const qs = query.toString();
+        if (qs) key = `${path}?${qs}`;
+      }
       if (!(key in routes)) throw new Error(`unexpected GET ${key}`);
       return routes[key];
     }),
@@ -99,7 +107,7 @@ describe("SchemaCache", () => {
   });
 
   it("falls back to the configured default project", async () => {
-    const client = fakeClient({ ...lookupRoutes, "/projects/by_slug": { id: 1 } });
+    const client = fakeClient({ ...lookupRoutes, "/projects/by_slug?slug=sandbox": { id: 1 } });
     const cache = new SchemaCache(client as never, { defaultProject: "sandbox" });
     await expect(cache.resolveProject()).resolves.toBe(1);
   });
@@ -126,5 +134,38 @@ describe("SchemaCache", () => {
       ([path]) => path === "/priorities",
     );
     expect(priorityCalls).toHaveLength(1);
+  });
+
+  it("rejects a pending invitee who has no user id yet", async () => {
+    const client = fakeClient({
+      ...lookupRoutes,
+      "/memberships?project=1": [
+        { user: 91, full_name: "Ivan Petrov", email: "ivan@example.com" },
+        { user: null, full_name: "Pending Person", email: "pending@example.com" },
+      ],
+    });
+    const cache = new SchemaCache(client as never, {});
+    // Pending invitee cannot be resolved
+    await expect(cache.resolveLookup(1, "member", "Pending Person")).rejects.toThrow(
+      /Pending Person/,
+    );
+    // But normal members still resolve
+    await expect(cache.resolveLookup(1, "member", "Ivan Petrov")).resolves.toBe(91);
+  });
+
+  it("resolveRef reuses project slug from cache", async () => {
+    const client = fakeClient({
+      ...lookupRoutes,
+      "/projects/1": { id: 1, slug: "sandbox", name: "Sandbox" },
+      "/resolver?project=sandbox&us=42": { us: 7 },
+      "/resolver?project=sandbox&us=43": { us: 8 },
+    });
+    const cache = new SchemaCache(client as never, {});
+    await cache.resolveRef(1, "us", 42);
+    await cache.resolveRef(1, "us", 43);
+    const projectCalls = client.get.mock.calls.filter(
+      ([path]) => path === "/projects/1",
+    );
+    expect(projectCalls).toHaveLength(1);
   });
 });
