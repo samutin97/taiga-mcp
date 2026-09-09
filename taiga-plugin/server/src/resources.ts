@@ -94,9 +94,10 @@ export const TASK: ResourceDef = {
   resolverKey: "task",
   hasRef: true,
   listFilters: {
-    sprint: z.string().optional().describe("Sprint (milestone) name."),
+    sprint: z.string().optional(),
     status: z.string().optional(),
     assigned_to: z.string().optional().describe("Assignee full name."),
+    user_story: z.number().optional().describe("Parent story #ref."),
     tags: z.array(z.string()).optional(),
     is_closed: z.boolean().optional(),
   },
@@ -112,7 +113,7 @@ export const TASK: ResourceDef = {
   updateFields: {
     subject: z.string().optional(),
     description: z.string().optional(),
-    user_story: z.number().optional().describe("Move to a different parent story, by #ref."),
+    user_story: z.number().optional().describe("Parent story #ref."),
     status: z.string().optional(),
     assigned_to: z.string().optional(),
     tags: tagsField,
@@ -219,7 +220,7 @@ export const SPRINT: ResourceDef = {
     closed: z.boolean().optional().describe("Only closed or only open sprints."),
   },
   createFields: {
-    name: z.string().describe("Sprint name."),
+    name: z.string(),
     estimated_start: z.string().describe("ISO date, e.g. 2026-09-07."),
     estimated_finish: z.string().describe("ISO date, e.g. 2026-09-20."),
   },
@@ -240,7 +241,7 @@ export const WIKI: ResourceDef = {
   hasRef: false,
   listFilters: {},
   createFields: {
-    slug: z.string().describe("Page slug, e.g. 'home'."),
+    slug: z.string().describe("e.g. 'home'."),
     content: z.string().describe("Markdown content."),
   },
   updateFields: {

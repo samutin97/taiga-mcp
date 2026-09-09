@@ -8,7 +8,7 @@ import type { ResourceDef } from "../resources.js";
 const projectRef = z
   .union([z.string(), z.number()])
   .optional()
-  .describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
+  .describe("Project id or slug; defaults to TAIGA_PROJECT.");
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -201,6 +201,9 @@ export function registerCrudTools(
           params.milestone = await resolveSprint(ctx, projectId, String(value));
         } else if (key === "epic") {
           params.epic = await resolveEpic(ctx, projectId, String(value));
+        } else if (key === "user_story") {
+          // Taiga filters tasks by the story's internal id; callers give the #ref.
+          params.user_story = await ctx.cache.resolveRef(projectId, "us", Number(value));
         } else if (key === "tags") {
           params.tags = (value as string[]).join(",");
         } else {

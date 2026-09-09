@@ -6,7 +6,7 @@ import { project, projectMany } from "../projections.js";
 const projectRef = z
   .union([z.string(), z.number()])
   .optional()
-  .describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
+  .describe("Project id or slug; defaults to TAIGA_PROJECT.");
 
 export function registerProjectTools(server: McpServer, ctx: ToolContext): void {
   server.tool(

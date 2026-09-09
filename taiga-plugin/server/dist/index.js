@@ -21851,9 +21851,7 @@ var LazyToolContext = class {
 function createContext(config2) {
   return new LazyToolContext(config2);
 }
-var FIELDS_SCHEMA = external_exports.union([external_exports.literal("slim"), external_exports.literal("full"), external_exports.array(external_exports.string())]).optional().describe(
-  "How much detail to return: 'slim' (default, ~10 key fields), 'full' (every field Taiga returns \u2014 expensive), or an explicit list of field names."
-);
+var FIELDS_SCHEMA = external_exports.union([external_exports.literal("slim"), external_exports.literal("full"), external_exports.array(external_exports.string())]).optional().describe("Detail level: 'slim' (default), 'full', or a list of field names.");
 function asFieldMode(value) {
   if (value === "full") return "full";
   if (Array.isArray(value)) return value;
@@ -22004,7 +22002,7 @@ function projectMany(resource, rows, fields = "slim", labels = {}) {
 }
 
 // src/tools/project.ts
-var projectRef = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
+var projectRef = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug; defaults to TAIGA_PROJECT.");
 function registerProjectTools(server, ctx) {
   server.tool(
     "taiga_project_list",
@@ -22102,9 +22100,10 @@ var TASK = {
   resolverKey: "task",
   hasRef: true,
   listFilters: {
-    sprint: external_exports.string().optional().describe("Sprint (milestone) name."),
+    sprint: external_exports.string().optional(),
     status: external_exports.string().optional(),
     assigned_to: external_exports.string().optional().describe("Assignee full name."),
+    user_story: external_exports.number().optional().describe("Parent story #ref."),
     tags: external_exports.array(external_exports.string()).optional(),
     is_closed: external_exports.boolean().optional()
   },
@@ -22120,7 +22119,7 @@ var TASK = {
   updateFields: {
     subject: external_exports.string().optional(),
     description: external_exports.string().optional(),
-    user_story: external_exports.number().optional().describe("Move to a different parent story, by #ref."),
+    user_story: external_exports.number().optional().describe("Parent story #ref."),
     status: external_exports.string().optional(),
     assigned_to: external_exports.string().optional(),
     tags: tagsField,
@@ -22224,7 +22223,7 @@ var SPRINT = {
     closed: external_exports.boolean().optional().describe("Only closed or only open sprints.")
   },
   createFields: {
-    name: external_exports.string().describe("Sprint name."),
+    name: external_exports.string(),
     estimated_start: external_exports.string().describe("ISO date, e.g. 2026-09-07."),
     estimated_finish: external_exports.string().describe("ISO date, e.g. 2026-09-20.")
   },
@@ -22244,7 +22243,7 @@ var WIKI = {
   hasRef: false,
   listFilters: {},
   createFields: {
-    slug: external_exports.string().describe("Page slug, e.g. 'home'."),
+    slug: external_exports.string().describe("e.g. 'home'."),
     content: external_exports.string().describe("Markdown content.")
   },
   updateFields: {
@@ -22264,7 +22263,7 @@ var RESOURCES = [
 ];
 
 // src/tools/crud.ts
-var projectRef2 = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
+var projectRef2 = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug; defaults to TAIGA_PROJECT.");
 async function buildLabels(ctx, def, projectId) {
   const wanted = def.labels ?? [];
   const resolved = await Promise.all(
@@ -22380,6 +22379,8 @@ function registerCrudTools(server, ctx, def) {
           params.milestone = await resolveSprint(ctx, projectId, String(value));
         } else if (key === "epic") {
           params.epic = await resolveEpic(ctx, projectId, String(value));
+        } else if (key === "user_story") {
+          params.user_story = await ctx.cache.resolveRef(projectId, "us", Number(value));
         } else if (key === "tags") {
           params.tags = value.join(",");
         } else {

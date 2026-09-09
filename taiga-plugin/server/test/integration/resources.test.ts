@@ -116,6 +116,21 @@ describe("all six resources", () => {
     expect(page.last_modifier.length).toBeGreaterThan(0);
   });
 
+  // Controller Finding 1: taiga_task_list's `user_story` filter must resolve
+  // the caller's #ref to the internal id Taiga's own filter actually keys
+  // on — otherwise the filter silently returns another story's tasks.
+  it("filters tasks by parent story #ref", async () => {
+    const all = await call("taiga_task_list");
+    const ref = all.json.items[0].user_story;
+    expect(typeof ref).toBe("number");
+
+    const filtered = await call("taiga_task_list", { user_story: ref });
+    expect(filtered.json.items.length).toBeGreaterThan(0);
+    for (const item of filtered.json.items) {
+      expect(item.user_story).toBe(ref);
+    }
+  });
+
   // Controller Addition 2: a task's parent story is given by #ref in both
   // create and update. This verifies the update path actually moves the
   // task, not just accepts the field silently.

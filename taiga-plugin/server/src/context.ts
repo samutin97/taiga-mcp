@@ -59,10 +59,7 @@ export function createContext(config?: TaigaConfig): ToolContext {
 export const FIELDS_SCHEMA = z
   .union([z.literal("slim"), z.literal("full"), z.array(z.string())])
   .optional()
-  .describe(
-    "How much detail to return: 'slim' (default, ~10 key fields), " +
-      "'full' (every field Taiga returns — expensive), or an explicit list of field names.",
-  );
+  .describe("Detail level: 'slim' (default), 'full', or a list of field names.");
 
 export function asFieldMode(value: unknown): FieldMode {
   if (value === "full") return "full";
