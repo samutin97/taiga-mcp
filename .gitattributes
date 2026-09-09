@@ -1,0 +1,7 @@
+# Нормализуем в LF при коммите. У разработчика глобально включён autocrlf,
+# а CRLF в скриптах ломает исполнение внутри контейнеров и в Git Bash.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

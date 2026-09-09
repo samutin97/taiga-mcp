@@ -1,0 +1,13 @@
+# Локальный стенд Taiga — клон стороннего репозитория, не наш код.
+# Как воссоздать точь-в-точь: см. infra/README.md
+infra/taiga-docker/
+
+node_modules/
+*.log
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
