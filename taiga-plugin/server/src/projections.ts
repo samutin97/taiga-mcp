@@ -11,6 +11,7 @@ export type FieldMode = "slim" | "full" | string[];
 
 /** Reverse id→name maps for fields Taiga returns as bare numeric ids. */
 export interface LabelMaps {
+  status?: Map<number, string>;
   priority?: Map<number, string>;
   severity?: Map<number, string>;
   type?: Map<number, string>;
@@ -35,6 +36,21 @@ const labelled = (key: string, map: keyof LabelMaps): Getter => (raw, labels) =>
   return labels[map]?.get(id) ?? id;
 };
 
+/**
+ * Prefer Taiga's inline *_extra_info object. The /search endpoint omits those
+ * and sends a bare numeric id instead, so fall back to the project's lookup
+ * table, and to the raw id if no map was supplied.
+ */
+const named =
+  (infoKey: string, infoField: string, idKey: string, map: keyof LabelMaps): Getter =>
+  (raw, labels) => {
+    const info = raw[infoKey] as Record<string, unknown> | null | undefined;
+    if (info && info[infoField] != null) return info[infoField];
+    const id = raw[idKey];
+    if (typeof id !== "number") return null;
+    return labels[map]?.get(id) ?? id;
+  };
+
 /** Taiga returns tags as [name, colour] pairs; only the name is useful. */
 const tags: Getter = (raw) =>
   Array.isArray(raw.tags)
@@ -47,8 +63,8 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
   userstory: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    status: named("status_extra_info", "name", "status", "status"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
     tags,
@@ -59,8 +75,8 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
   task: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    status: named("status_extra_info", "name", "status", "status"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     user_story: extra("user_story_extra_info", "ref"),
     tags,
     is_closed: plain("is_closed"),
@@ -68,20 +84,20 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
   issue: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
+    status: named("status_extra_info", "name", "status", "status"),
     priority: labelled("priority", "priority"),
     severity: labelled("severity", "severity"),
     type: labelled("type", "type"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     tags,
     is_closed: plain("is_closed"),
   },
   epic: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
+    status: named("status_extra_info", "name", "status", "status"),
     color: plain("color"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     stories_total: (raw) =>
       (raw.user_stories_counts as Record<string, unknown> | undefined)?.total ?? null,
     stories_progress: (raw) =>

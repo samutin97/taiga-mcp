@@ -153,6 +153,43 @@ describe("projections", () => {
     expect(result.last_modifier).toBe("Local Admin");
   });
 
+  // Correction 2 (Task 10 review): /search sends a bare numeric `status`/
+  // `assigned_to` with no *_extra_info companion, so `status`/`assigned_to`
+  // must fall back to the project's lookup table just like priority/severity/
+  // type already do — but the normal CRUD path's *_extra_info must still win
+  // when both are present, since that's the richer, already-resolved value.
+  it("falls back to the status lookup table when status_extra_info is absent", () => {
+    const rawStory = {
+      ref: 3,
+      subject: "Story without status_extra_info",
+      status: 12,
+      tags: [],
+    };
+
+    const result = project("userstory", rawStory, "slim", {
+      status: new Map([[12, "In progress"]]),
+    });
+    expect(result.status).toBe("In progress");
+  });
+
+  it("prefers status_extra_info over a conflicting bare status id", () => {
+    const rawStory = {
+      ref: 3,
+      subject: "Story with both status shapes",
+      status_extra_info: { name: "Done" },
+      // Deliberately conflicting: if the fallback were applied too eagerly
+      // (ignoring status_extra_info), this id would win and the projected
+      // status would come back as "Not started", not "Done".
+      status: 99,
+      tags: [],
+    };
+
+    const result = project("userstory", rawStory, "slim", {
+      status: new Map([[99, "Not started"]]),
+    });
+    expect(result.status).toBe("Done");
+  });
+
   it("returns null for missing priority field in issue", () => {
     const rawIssue = {
       id: 1,

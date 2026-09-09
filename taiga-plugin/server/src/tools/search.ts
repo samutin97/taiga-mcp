@@ -21,15 +21,26 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
         { project: projectId, text: a.text },
       );
 
-      // Issue rows from /search carry bare numeric priority/severity/type
-      // ids, the exact shape the label mechanism exists to translate.
-      const [priority, severity, type, member] = await Promise.all([
-        ctx.cache.labelMap(projectId, "priority"),
-        ctx.cache.labelMap(projectId, "severity"),
-        ctx.cache.labelMap(projectId, "issue-type"),
-        ctx.cache.labelMap(projectId, "member"),
-      ]);
-      const issueLabels: LabelMaps = { priority, severity, type };
+      // /search omits every *_extra_info object and sends bare numeric ids
+      // instead (status on userstory/task/issue/epic hits, assigned_to on
+      // issue hits, priority/severity/type on issue hits, last_modifier on
+      // wikipage hits) — the exact shape the label mechanism exists to
+      // translate. Each resource has its own status table, so these must
+      // not be shared across buckets.
+      const [userstoryStatus, taskStatus, issueStatus, priority, severity, type, member] =
+        await Promise.all([
+          ctx.cache.labelMap(projectId, "userstory-status"),
+          ctx.cache.labelMap(projectId, "task-status"),
+          ctx.cache.labelMap(projectId, "issue-status"),
+          ctx.cache.labelMap(projectId, "priority"),
+          ctx.cache.labelMap(projectId, "severity"),
+          ctx.cache.labelMap(projectId, "issue-type"),
+          ctx.cache.labelMap(projectId, "member"),
+        ]);
+      const userstoryLabels: LabelMaps = { status: userstoryStatus, member };
+      const taskLabels: LabelMaps = { status: taskStatus, member };
+      const issueLabels: LabelMaps = { status: issueStatus, priority, severity, type, member };
+      const epicLabels: LabelMaps = { member };
       const wikiLabels: LabelMaps = { member };
 
       const bucket = (
@@ -40,10 +51,10 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
 
       return ok({
         count: found.count ?? 0,
-        userstories: bucket("userstories", "userstory"),
-        tasks: bucket("tasks", "task"),
+        userstories: bucket("userstories", "userstory", userstoryLabels),
+        tasks: bucket("tasks", "task", taskLabels),
         issues: bucket("issues", "issue", issueLabels),
-        epics: bucket("epics", "epic"),
+        epics: bucket("epics", "epic", epicLabels),
         wikipages: bucket("wikipages", "wiki", wikiLabels),
       });
     }),

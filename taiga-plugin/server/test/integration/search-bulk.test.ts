@@ -25,13 +25,28 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 
 /** Refs created by a test, deleted after it whether it passed or failed. */
 const createdRefs: number[] = [];
+/** Task refs, deleted separately (and first) since tasks reference a story. */
+const createdTaskRefs: number[] = [];
 
 function track(ref: number): number {
   createdRefs.push(ref);
   return ref;
 }
 
+function trackTask(ref: number): number {
+  createdTaskRefs.push(ref);
+  return ref;
+}
+
 afterEach(async () => {
+  while (createdTaskRefs.length > 0) {
+    const ref = createdTaskRefs.pop()!;
+    try {
+      await call("taiga_task_delete", { ref, confirm: true });
+    } catch {
+      // Best effort: a test may already have deleted it deliberately.
+    }
+  }
   while (createdRefs.length > 0) {
     const ref = createdRefs.pop()!;
     try {
@@ -55,6 +70,17 @@ describe("search", () => {
     expect(json.count).toBe(0);
   });
 
+  it("resolves a user story hit's status to a name, not a bare id", async () => {
+    // Verified live: /search sends a bare numeric `status` on userstory hits
+    // with no status_extra_info companion. The seeded stories all carry a
+    // real status, so this is directly exercisable against the stand.
+    const { json } = await call("taiga_search", { text: "authenticate" });
+    expect(json.userstories.length).toBeGreaterThan(0);
+    const hit = json.userstories[0];
+    expect(typeof hit.status).toBe("string");
+    expect(hit.status.length).toBeGreaterThan(0);
+  });
+
   // Correction 1 (resolving issue priority/severity/type and wikipages'
   // last_modifier to names) is verified at the unit level in
   // test/search.test.ts, not here. Verified live: Taiga 6.9.0's /search
@@ -75,12 +101,10 @@ describe("bulk create", () => {
         { subject: "Bulk story B", status: "In progress" },
       ],
     });
+    for (const item of json.created) track(item.ref as number);
+
     expect(json.created).toHaveLength(2);
     expect(json.failed).toHaveLength(0);
-
-    for (const item of json.created) {
-      track(item.ref as number);
-    }
   });
 
   it("reports a partial failure without aborting the rest", async () => {
@@ -91,11 +115,11 @@ describe("bulk create", () => {
         { subject: "Bulk bad", status: "NoSuchStatus" },
       ],
     });
+    for (const item of json.created) track(item.ref as number);
+
     expect(json.created).toHaveLength(1);
     expect(json.failed).toHaveLength(1);
     expect(json.failed[0].error).toMatch(/Valid values/);
-
-    track(json.created[0].ref as number);
   });
 
   it("still creates items after a failure in the middle of the batch", async () => {
@@ -109,14 +133,15 @@ describe("bulk create", () => {
         { subject: "Bulk middle-failure third" },
       ],
     });
+    for (const item of json.created) track(item.ref as number);
+
     expect(json.created).toHaveLength(2);
     expect(json.failed).toHaveLength(1);
 
     const subjects = json.created.map((c: { subject?: string }) => c.subject);
-    // Confirm the third item's ref actually resolves in Taiga, not just that
-    // the handler reported it as created.
+    // Confirm each created item's ref actually resolves in Taiga, not just
+    // that the handler reported it as created.
     for (const item of json.created) {
-      track(item.ref as number);
       const fetched = await call("taiga_userstory_get", { ref: item.ref });
       expect(fetched.isError).toBe(false);
     }
@@ -134,11 +159,11 @@ describe("bulk create", () => {
       resource: "task",
       items: [{ subject: "Bulk child task", user_story: parentRef }],
     });
+    for (const item of json.created) trackTask(item.ref as number);
+
     expect(json.failed).toHaveLength(0);
     expect(json.created).toHaveLength(1);
     expect(json.created[0].user_story).toBe(parentRef);
-
-    await call("taiga_task_delete", { ref: json.created[0].ref, confirm: true });
   });
 
   it("refuses more than fifty items", async () => {

@@ -96,6 +96,36 @@ describe("taiga_search label resolution", () => {
     expect(json.issues[0].type).toBe("Bug");
   });
 
+  it("resolves a user story hit's bare status id to a name", async () => {
+    const { server, handlerFor } = captureHandler();
+    const ctx = fakeContext(
+      {
+        count: 1,
+        tasks: [],
+        epics: [],
+        issues: [],
+        wikipages: [],
+        userstories: [
+          {
+            id: 1,
+            ref: 3,
+            subject: "Authenticate against Taiga",
+            status: 12,
+            total_points: 5,
+            milestone_name: "Sprint 1",
+          },
+        ],
+      },
+      { "userstory-status": new Map([[12, "In progress"]]) },
+    );
+
+    registerSearchTool(server, ctx);
+    const { json } = await callHandler(handlerFor("taiga_search"), { text: "authenticate" });
+
+    expect(json.userstories).toHaveLength(1);
+    expect(json.userstories[0].status).toBe("In progress");
+  });
+
   it("resolves a wiki page's last_modifier to a member name, not a bare id", async () => {
     const { server, handlerFor } = captureHandler();
     const ctx = fakeContext(

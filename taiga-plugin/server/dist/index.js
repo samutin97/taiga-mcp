@@ -21915,14 +21915,21 @@ var labelled = (key, map) => (raw, labels) => {
   if (typeof id !== "number") return null;
   return labels[map]?.get(id) ?? id;
 };
+var named = (infoKey, infoField, idKey, map) => (raw, labels) => {
+  const info = raw[infoKey];
+  if (info && info[infoField] != null) return info[infoField];
+  const id = raw[idKey];
+  if (typeof id !== "number") return null;
+  return labels[map]?.get(id) ?? id;
+};
 var tags = (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : [];
 var plain = (key) => (raw) => raw[key] ?? null;
 var SLIM = {
   userstory: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    status: named("status_extra_info", "name", "status", "status"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
     tags,
@@ -21933,8 +21940,8 @@ var SLIM = {
   task: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    status: named("status_extra_info", "name", "status", "status"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     user_story: extra("user_story_extra_info", "ref"),
     tags,
     is_closed: plain("is_closed")
@@ -21942,20 +21949,20 @@ var SLIM = {
   issue: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
+    status: named("status_extra_info", "name", "status", "status"),
     priority: labelled("priority", "priority"),
     severity: labelled("severity", "severity"),
     type: labelled("type", "type"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     tags,
     is_closed: plain("is_closed")
   },
   epic: {
     ref: plain("ref"),
     subject: plain("subject"),
-    status: extra("status_extra_info", "name"),
+    status: named("status_extra_info", "name", "status", "status"),
     color: plain("color"),
-    assigned_to: extra("assigned_to_extra_info", "full_name_display"),
+    assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
     stories_total: (raw) => raw.user_stories_counts?.total ?? null,
     stories_progress: (raw) => raw.user_stories_counts?.progress ?? null
   },
@@ -22618,21 +22625,27 @@ function registerSearchTool(server, ctx) {
         "/search",
         { project: projectId, text: a.text }
       );
-      const [priority, severity, type, member] = await Promise.all([
+      const [userstoryStatus, taskStatus, issueStatus, priority, severity, type, member] = await Promise.all([
+        ctx.cache.labelMap(projectId, "userstory-status"),
+        ctx.cache.labelMap(projectId, "task-status"),
+        ctx.cache.labelMap(projectId, "issue-status"),
         ctx.cache.labelMap(projectId, "priority"),
         ctx.cache.labelMap(projectId, "severity"),
         ctx.cache.labelMap(projectId, "issue-type"),
         ctx.cache.labelMap(projectId, "member")
       ]);
-      const issueLabels = { priority, severity, type };
+      const userstoryLabels = { status: userstoryStatus, member };
+      const taskLabels = { status: taskStatus, member };
+      const issueLabels = { status: issueStatus, priority, severity, type, member };
+      const epicLabels = { member };
       const wikiLabels = { member };
       const bucket = (key, resource, labels = {}) => projectMany(resource, found[key] ?? [], "slim", labels);
       return ok({
         count: found.count ?? 0,
-        userstories: bucket("userstories", "userstory"),
-        tasks: bucket("tasks", "task"),
+        userstories: bucket("userstories", "userstory", userstoryLabels),
+        tasks: bucket("tasks", "task", taskLabels),
         issues: bucket("issues", "issue", issueLabels),
-        epics: bucket("epics", "epic"),
+        epics: bucket("epics", "epic", epicLabels),
         wikipages: bucket("wikipages", "wiki", wikiLabels)
       });
     })
