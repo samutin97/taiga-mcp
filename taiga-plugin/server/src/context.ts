@@ -12,11 +12,48 @@ export interface ToolContext {
   cache: SchemaCache;
 }
 
-export function createContext(config: TaigaConfig = loadConfig()): ToolContext {
-  const auth = new TaigaAuth(config);
-  const client = new TaigaClient(config, auth);
-  const cache = new SchemaCache(client, { defaultProject: config.defaultProject });
-  return { config, auth, client, cache };
+/**
+ * Configuration is resolved on first use, not at construction, so an
+ * unconfigured plugin still completes the MCP handshake and can report the
+ * problem through the normal guarded tool-error path instead of dying first.
+ */
+class LazyToolContext implements ToolContext {
+  private built?: {
+    config: TaigaConfig;
+    auth: TaigaAuth;
+    client: TaigaClient;
+    cache: SchemaCache;
+  };
+
+  constructor(private readonly override?: TaigaConfig) {}
+
+  private build() {
+    if (!this.built) {
+      const config = this.override ?? loadConfig();
+      const auth = new TaigaAuth(config);
+      const client = new TaigaClient(config, auth);
+      const cache = new SchemaCache(client, { defaultProject: config.defaultProject });
+      this.built = { config, auth, client, cache };
+    }
+    return this.built;
+  }
+
+  get config(): TaigaConfig {
+    return this.build().config;
+  }
+  get auth(): TaigaAuth {
+    return this.build().auth;
+  }
+  get client(): TaigaClient {
+    return this.build().client;
+  }
+  get cache(): SchemaCache {
+    return this.build().cache;
+  }
+}
+
+export function createContext(config?: TaigaConfig): ToolContext {
+  return new LazyToolContext(config);
 }
 
 export const FIELDS_SCHEMA = z

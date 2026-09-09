@@ -1,3 +1,5 @@
+import { TaigaError } from "./errors.js";
+
 export interface TaigaConfig {
   url: string;
   username: string;
@@ -17,9 +19,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): TaigaConfig {
   ].filter(Boolean);
 
   if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missing.join(", ")}. ` +
-        `Set them in your Claude Code settings before using the Taiga plugin.`,
+    throw new TaigaError(
+      `The Taiga plugin is not configured: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set.`,
+      {
+        hint: "Set them in your Claude Code settings, then retry. TAIGA_URL is the instance address without /api/v1.",
+      },
     );
   }
 

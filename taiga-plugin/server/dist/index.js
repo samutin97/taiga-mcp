@@ -21429,25 +21429,6 @@ var StdioServerTransport = class {
   }
 };
 
-// src/config.ts
-function loadConfig(env = process.env) {
-  const url = (env.TAIGA_URL ?? "").trim().replace(/\/+$/, "");
-  const username = (env.TAIGA_USERNAME ?? "").trim();
-  const password = env.TAIGA_PASSWORD ?? "";
-  const missing = [
-    !url && "TAIGA_URL",
-    !username && "TAIGA_USERNAME",
-    !password && "TAIGA_PASSWORD"
-  ].filter(Boolean);
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missing.join(", ")}. Set them in your Claude Code settings before using the Taiga plugin.`
-    );
-  }
-  const defaultProject = env.TAIGA_PROJECT?.trim() || void 0;
-  return { url, username, password, defaultProject };
-}
-
 // src/errors.ts
 var TaigaError = class extends Error {
   status;
@@ -21494,6 +21475,28 @@ function describeHttpError(status, body) {
     default:
       return new TaigaError(detail ?? `Taiga returned HTTP ${status}.`, { status });
   }
+}
+
+// src/config.ts
+function loadConfig(env = process.env) {
+  const url = (env.TAIGA_URL ?? "").trim().replace(/\/+$/, "");
+  const username = (env.TAIGA_USERNAME ?? "").trim();
+  const password = env.TAIGA_PASSWORD ?? "";
+  const missing = [
+    !url && "TAIGA_URL",
+    !username && "TAIGA_USERNAME",
+    !password && "TAIGA_PASSWORD"
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new TaigaError(
+      `The Taiga plugin is not configured: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set.`,
+      {
+        hint: "Set them in your Claude Code settings, then retry. TAIGA_URL is the instance address without /api/v1."
+      }
+    );
+  }
+  const defaultProject = env.TAIGA_PROJECT?.trim() || void 0;
+  return { url, username, password, defaultProject };
 }
 
 // src/auth.ts
@@ -21817,11 +21820,36 @@ var SchemaCache = class {
 };
 
 // src/context.ts
-function createContext(config2 = loadConfig()) {
-  const auth = new TaigaAuth(config2);
-  const client = new TaigaClient(config2, auth);
-  const cache = new SchemaCache(client, { defaultProject: config2.defaultProject });
-  return { config: config2, auth, client, cache };
+var LazyToolContext = class {
+  constructor(override) {
+    this.override = override;
+  }
+  built;
+  build() {
+    if (!this.built) {
+      const config2 = this.override ?? loadConfig();
+      const auth = new TaigaAuth(config2);
+      const client = new TaigaClient(config2, auth);
+      const cache = new SchemaCache(client, { defaultProject: config2.defaultProject });
+      this.built = { config: config2, auth, client, cache };
+    }
+    return this.built;
+  }
+  get config() {
+    return this.build().config;
+  }
+  get auth() {
+    return this.build().auth;
+  }
+  get client() {
+    return this.build().client;
+  }
+  get cache() {
+    return this.build().cache;
+  }
+};
+function createContext(config2) {
+  return new LazyToolContext(config2);
 }
 var FIELDS_SCHEMA = external_exports.union([external_exports.literal("slim"), external_exports.literal("full"), external_exports.array(external_exports.string())]).optional().describe(
   "How much detail to return: 'slim' (default, ~10 key fields), 'full' (every field Taiga returns \u2014 expensive), or an explicit list of field names."
