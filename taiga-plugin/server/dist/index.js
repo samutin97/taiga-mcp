@@ -22737,6 +22737,67 @@ function registerBulkTool(server, ctx) {
   );
 }
 
+// src/tools/stats.ts
+function registerStatsTool(server, ctx) {
+  server.tool(
+    "taiga_stats",
+    "Progress statistics. With `sprint` it returns that sprint's points, completed work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+    {
+      project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+      sprint: external_exports.string().optional().describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats.")
+    },
+    guard(async (args) => {
+      const a = args;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      if (!a.sprint) {
+        const stats2 = await ctx.client.get(
+          `/projects/${projectId}/stats`
+        );
+        return ok({
+          scope: "project",
+          name: stats2.name,
+          total_points: stats2.total_points ?? stats2.defined_points,
+          defined_points: stats2.defined_points,
+          assigned_points: stats2.assigned_points,
+          closed_points: stats2.closed_points,
+          speed: stats2.speed,
+          milestones: stats2.milestones
+        });
+      }
+      const milestones = await ctx.client.list(
+        "/milestones",
+        { project: projectId, page_size: 1e3 }
+      );
+      const match = milestones.items.find(
+        (m) => m.name.toLowerCase() === a.sprint.trim().toLowerCase()
+      );
+      if (!match) {
+        throw new TaigaError(`"${a.sprint}" is not a sprint in this project.`, {
+          hint: `Sprints: ${milestones.items.map((m) => m.name).join(", ")}`
+        });
+      }
+      const stats = await ctx.client.get(`/milestones/${match.id}/stats`);
+      const points = Object.values(stats.total_points)[0] ?? 0;
+      const completed = stats.completed_points.reduce((s, v) => s + (v ?? 0), 0);
+      return ok({
+        scope: "sprint",
+        name: stats.name,
+        starts: stats.estimated_start,
+        finishes: stats.estimated_finish,
+        total_points: points,
+        completed_points: completed,
+        completed_userstories: stats.completed_userstories,
+        completed_tasks: stats.completed_tasks,
+        burndown: (stats.days ?? []).map((day) => ({
+          day: day.day,
+          open_points: day.open_points,
+          optimal_points: day.optimal_points
+        }))
+      });
+    })
+  );
+}
+
 // src/index.ts
 function createServer(ctx = createContext()) {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
@@ -22746,6 +22807,7 @@ function createServer(ctx = createContext()) {
   registerCommentTools(server, ctx);
   registerSearchTool(server, ctx);
   registerBulkTool(server, ctx);
+  registerStatsTool(server, ctx);
   return server;
 }
 async function main() {

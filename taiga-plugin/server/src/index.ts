@@ -8,6 +8,7 @@ import { registerCrudTools } from "./tools/crud.js";
 import { registerCommentTools } from "./tools/comment.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerBulkTool } from "./tools/bulk.js";
+import { registerStatsTool } from "./tools/stats.js";
 
 export function createServer(ctx: ToolContext = createContext()): McpServer {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
@@ -17,6 +18,7 @@ export function createServer(ctx: ToolContext = createContext()): McpServer {
   registerCommentTools(server, ctx);
   registerSearchTool(server, ctx);
   registerBulkTool(server, ctx);
+  registerStatsTool(server, ctx);
   return server;
 }
 
