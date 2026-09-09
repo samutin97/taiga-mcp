@@ -22061,7 +22061,7 @@ var USER_STORY = {
     is_closed: external_exports.boolean().optional()
   },
   createFields: {
-    subject: external_exports.string().describe("Story title."),
+    subject: external_exports.string(),
     description: external_exports.string().optional(),
     status: external_exports.string().optional().describe("Status name; defaults to the project's first status."),
     assigned_to: external_exports.string().optional().describe("Assignee full name."),
@@ -22095,16 +22095,182 @@ var USER_STORY = {
   ],
   supportsAppend: true
 };
-var RESOURCES = [USER_STORY];
+var TASK = {
+  name: "task",
+  path: "/tasks",
+  label: "task",
+  resolverKey: "task",
+  hasRef: true,
+  listFilters: {
+    sprint: external_exports.string().optional().describe("Sprint (milestone) name."),
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional().describe("Assignee full name."),
+    tags: external_exports.array(external_exports.string()).optional(),
+    is_closed: external_exports.boolean().optional()
+  },
+  createFields: {
+    subject: external_exports.string(),
+    description: external_exports.string().optional(),
+    user_story: external_exports.number().optional().describe("Parent story #ref."),
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: tagsField,
+    due_date: external_exports.string().optional()
+  },
+  updateFields: {
+    subject: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    user_story: external_exports.number().optional().describe("Move to a different parent story, by #ref."),
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: tagsField,
+    due_date: external_exports.string().optional(),
+    is_blocked: external_exports.boolean().optional(),
+    blocked_note: external_exports.string().optional()
+  },
+  lookups: [
+    { field: "status", kind: "task-status" },
+    { field: "assigned_to", kind: "member" }
+  ],
+  supportsAppend: true
+};
+var ISSUE = {
+  name: "issue",
+  path: "/issues",
+  label: "issue",
+  resolverKey: "issue",
+  hasRef: true,
+  listFilters: {
+    status: external_exports.string().optional(),
+    priority: external_exports.string().optional().describe("e.g. 'High'."),
+    severity: external_exports.string().optional().describe("e.g. 'Important'."),
+    type: external_exports.string().optional().describe("e.g. 'Bug'."),
+    assigned_to: external_exports.string().optional(),
+    tags: external_exports.array(external_exports.string()).optional(),
+    is_closed: external_exports.boolean().optional()
+  },
+  createFields: {
+    subject: external_exports.string(),
+    description: external_exports.string().optional(),
+    status: external_exports.string().optional(),
+    priority: external_exports.string().optional(),
+    severity: external_exports.string().optional(),
+    type: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: tagsField,
+    due_date: external_exports.string().optional()
+  },
+  updateFields: {
+    subject: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    status: external_exports.string().optional(),
+    priority: external_exports.string().optional(),
+    severity: external_exports.string().optional(),
+    type: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: tagsField,
+    due_date: external_exports.string().optional()
+  },
+  lookups: [
+    { field: "status", kind: "issue-status" },
+    { field: "priority", kind: "priority" },
+    { field: "severity", kind: "severity" },
+    { field: "type", kind: "issue-type" },
+    { field: "assigned_to", kind: "member" }
+  ],
+  labels: [
+    { map: "priority", kind: "priority" },
+    { map: "severity", kind: "severity" },
+    { map: "type", kind: "issue-type" }
+  ],
+  supportsAppend: true
+};
+var EPIC = {
+  name: "epic",
+  path: "/epics",
+  label: "epic",
+  resolverKey: "epic",
+  hasRef: true,
+  listFilters: {
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: external_exports.array(external_exports.string()).optional()
+  },
+  createFields: {
+    subject: external_exports.string(),
+    description: external_exports.string().optional(),
+    color: external_exports.string().optional().describe("Hex colour, e.g. #B22222."),
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: tagsField
+  },
+  updateFields: {
+    subject: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    color: external_exports.string().optional(),
+    status: external_exports.string().optional(),
+    assigned_to: external_exports.string().optional(),
+    tags: tagsField
+  },
+  lookups: [{ field: "assigned_to", kind: "member" }],
+  supportsAppend: true
+};
+var SPRINT = {
+  name: "sprint",
+  path: "/milestones",
+  label: "sprint",
+  hasRef: false,
+  listFilters: {
+    closed: external_exports.boolean().optional().describe("Only closed or only open sprints.")
+  },
+  createFields: {
+    name: external_exports.string().describe("Sprint name."),
+    estimated_start: external_exports.string().describe("ISO date, e.g. 2026-09-07."),
+    estimated_finish: external_exports.string().describe("ISO date, e.g. 2026-09-20.")
+  },
+  updateFields: {
+    name: external_exports.string().optional(),
+    estimated_start: external_exports.string().optional(),
+    estimated_finish: external_exports.string().optional(),
+    closed: external_exports.boolean().optional()
+  },
+  lookups: [],
+  supportsAppend: false
+};
+var WIKI = {
+  name: "wiki",
+  path: "/wiki",
+  label: "wiki page",
+  hasRef: false,
+  listFilters: {},
+  createFields: {
+    slug: external_exports.string().describe("Page slug, e.g. 'home'."),
+    content: external_exports.string().describe("Markdown content.")
+  },
+  updateFields: {
+    content: external_exports.string().optional().describe("Replacement Markdown content.")
+  },
+  lookups: [],
+  labels: [{ map: "member", kind: "member" }],
+  supportsAppend: false
+};
+var RESOURCES = [
+  USER_STORY,
+  TASK,
+  ISSUE,
+  EPIC,
+  SPRINT,
+  WIKI
+];
 
 // src/tools/crud.ts
 var projectRef2 = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT when set.");
 async function buildLabels(ctx, def, projectId) {
-  const labels = {};
-  for (const { map, kind } of def.labels ?? []) {
-    labels[map] = await ctx.cache.labelMap(projectId, kind);
-  }
-  return labels;
+  const wanted = def.labels ?? [];
+  const resolved = await Promise.all(
+    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
+  );
+  return Object.fromEntries(resolved);
 }
 async function locate(ctx, def, projectId, args) {
   if (typeof args.id === "number") return args.id;
@@ -22253,6 +22419,9 @@ function registerCrudTools(server, ctx, def) {
       const projectId = await ctx.cache.resolveProject(ref);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
+      if (typeof payload.user_story === "number") {
+        payload.user_story = await ctx.cache.resolveRef(projectId, "us", payload.user_story);
+      }
       if (typeof sprint === "string") {
         payload.milestone = await resolveSprint(ctx, projectId, sprint);
       }
@@ -22297,6 +22466,9 @@ function registerCrudTools(server, ctx, def) {
         delete a[key];
       }
       const changes = await resolveFields(ctx, def, projectId, a);
+      if (typeof changes.user_story === "number") {
+        changes.user_story = await ctx.cache.resolveRef(projectId, "us", changes.user_story);
+      }
       if (sprint !== void 0) {
         changes.milestone = await resolveSprint(ctx, projectId, sprint);
       }

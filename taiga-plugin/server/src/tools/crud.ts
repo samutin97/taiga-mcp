@@ -16,11 +16,11 @@ async function buildLabels(
   def: ResourceDef,
   projectId: number,
 ): Promise<LabelMaps> {
-  const labels: LabelMaps = {};
-  for (const { map, kind } of def.labels ?? []) {
-    labels[map] = await ctx.cache.labelMap(projectId, kind);
-  }
-  return labels;
+  const wanted = def.labels ?? [];
+  const resolved = await Promise.all(
+    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
+  );
+  return Object.fromEntries(resolved) as LabelMaps;
 }
 
 /** Resolve the caller's `id` or `ref` into an internal object id. */
@@ -245,6 +245,10 @@ export function registerCrudTools(
       const projectId = await ctx.cache.resolveProject(ref as string | undefined);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
+      // Callers give the parent story by its #ref, which is what they see in Taiga.
+      if (typeof payload.user_story === "number") {
+        payload.user_story = await ctx.cache.resolveRef(projectId, "us", payload.user_story as number);
+      }
       if (typeof sprint === "string") {
         payload.milestone = await resolveSprint(ctx, projectId, sprint);
       }
@@ -297,6 +301,10 @@ export function registerCrudTools(
       }
 
       const changes = await resolveFields(ctx, def, projectId, a);
+      // Callers give the parent story by its #ref, which is what they see in Taiga.
+      if (typeof changes.user_story === "number") {
+        changes.user_story = await ctx.cache.resolveRef(projectId, "us", changes.user_story as number);
+      }
       if (sprint !== undefined) {
         changes.milestone = await resolveSprint(ctx, projectId, sprint);
       }

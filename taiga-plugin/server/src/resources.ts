@@ -44,7 +44,7 @@ export const USER_STORY: ResourceDef = {
     is_closed: z.boolean().optional(),
   },
   createFields: {
-    subject: z.string().describe("Story title."),
+    subject: z.string(),
     description: z.string().optional(),
     status: z.string().optional().describe("Status name; defaults to the project's first status."),
     assigned_to: z.string().optional().describe("Assignee full name."),
@@ -87,4 +87,175 @@ export const USER_STORY: ResourceDef = {
   supportsAppend: true,
 };
 
-export const RESOURCES: ResourceDef[] = [USER_STORY];
+export const TASK: ResourceDef = {
+  name: "task",
+  path: "/tasks",
+  label: "task",
+  resolverKey: "task",
+  hasRef: true,
+  listFilters: {
+    sprint: z.string().optional().describe("Sprint (milestone) name."),
+    status: z.string().optional(),
+    assigned_to: z.string().optional().describe("Assignee full name."),
+    tags: z.array(z.string()).optional(),
+    is_closed: z.boolean().optional(),
+  },
+  createFields: {
+    subject: z.string(),
+    description: z.string().optional(),
+    user_story: z.number().optional().describe("Parent story #ref."),
+    status: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: tagsField,
+    due_date: z.string().optional(),
+  },
+  updateFields: {
+    subject: z.string().optional(),
+    description: z.string().optional(),
+    user_story: z.number().optional().describe("Move to a different parent story, by #ref."),
+    status: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: tagsField,
+    due_date: z.string().optional(),
+    is_blocked: z.boolean().optional(),
+    blocked_note: z.string().optional(),
+  },
+  lookups: [
+    { field: "status", kind: "task-status" },
+    { field: "assigned_to", kind: "member" },
+  ],
+  supportsAppend: true,
+};
+
+export const ISSUE: ResourceDef = {
+  name: "issue",
+  path: "/issues",
+  label: "issue",
+  resolverKey: "issue",
+  hasRef: true,
+  listFilters: {
+    status: z.string().optional(),
+    priority: z.string().optional().describe("e.g. 'High'."),
+    severity: z.string().optional().describe("e.g. 'Important'."),
+    type: z.string().optional().describe("e.g. 'Bug'."),
+    assigned_to: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    is_closed: z.boolean().optional(),
+  },
+  createFields: {
+    subject: z.string(),
+    description: z.string().optional(),
+    status: z.string().optional(),
+    priority: z.string().optional(),
+    severity: z.string().optional(),
+    type: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: tagsField,
+    due_date: z.string().optional(),
+  },
+  updateFields: {
+    subject: z.string().optional(),
+    description: z.string().optional(),
+    status: z.string().optional(),
+    priority: z.string().optional(),
+    severity: z.string().optional(),
+    type: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: tagsField,
+    due_date: z.string().optional(),
+  },
+  lookups: [
+    { field: "status", kind: "issue-status" },
+    { field: "priority", kind: "priority" },
+    { field: "severity", kind: "severity" },
+    { field: "type", kind: "issue-type" },
+    { field: "assigned_to", kind: "member" },
+  ],
+  labels: [
+    { map: "priority", kind: "priority" },
+    { map: "severity", kind: "severity" },
+    { map: "type", kind: "issue-type" },
+  ],
+  supportsAppend: true,
+};
+
+export const EPIC: ResourceDef = {
+  name: "epic",
+  path: "/epics",
+  label: "epic",
+  resolverKey: "epic",
+  hasRef: true,
+  listFilters: {
+    status: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  },
+  createFields: {
+    subject: z.string(),
+    description: z.string().optional(),
+    color: z.string().optional().describe("Hex colour, e.g. #B22222."),
+    status: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: tagsField,
+  },
+  updateFields: {
+    subject: z.string().optional(),
+    description: z.string().optional(),
+    color: z.string().optional(),
+    status: z.string().optional(),
+    assigned_to: z.string().optional(),
+    tags: tagsField,
+  },
+  lookups: [{ field: "assigned_to", kind: "member" }],
+  supportsAppend: true,
+};
+
+export const SPRINT: ResourceDef = {
+  name: "sprint",
+  path: "/milestones",
+  label: "sprint",
+  hasRef: false,
+  listFilters: {
+    closed: z.boolean().optional().describe("Only closed or only open sprints."),
+  },
+  createFields: {
+    name: z.string().describe("Sprint name."),
+    estimated_start: z.string().describe("ISO date, e.g. 2026-09-07."),
+    estimated_finish: z.string().describe("ISO date, e.g. 2026-09-20."),
+  },
+  updateFields: {
+    name: z.string().optional(),
+    estimated_start: z.string().optional(),
+    estimated_finish: z.string().optional(),
+    closed: z.boolean().optional(),
+  },
+  lookups: [],
+  supportsAppend: false,
+};
+
+export const WIKI: ResourceDef = {
+  name: "wiki",
+  path: "/wiki",
+  label: "wiki page",
+  hasRef: false,
+  listFilters: {},
+  createFields: {
+    slug: z.string().describe("Page slug, e.g. 'home'."),
+    content: z.string().describe("Markdown content."),
+  },
+  updateFields: {
+    content: z.string().optional().describe("Replacement Markdown content."),
+  },
+  lookups: [],
+  labels: [{ map: "member", kind: "member" }],
+  supportsAppend: false,
+};
+
+export const RESOURCES: ResourceDef[] = [
+  USER_STORY,
+  TASK,
+  ISSUE,
+  EPIC,
+  SPRINT,
+  WIKI,
+];
