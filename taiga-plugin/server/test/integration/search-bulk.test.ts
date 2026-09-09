@@ -228,4 +228,73 @@ describe("bulk create", () => {
       }
     }
   });
+
+  // Decision: taiga_bulk_create silently dropping `epic` (created
+  // the story, said nothing, never linked it) was worse than an error, so
+  // it now reuses the same link mechanism as taiga_userstory_create. Epic
+  // subjects are read from taiga_epic_list rather than hardcoded.
+  describe("epic linking", () => {
+    it("links every item naming the same epic, resolving it once", async () => {
+      const epics = await call("taiga_epic_list");
+      const epicSubject = epics.json.items[0].subject;
+
+      const { json } = await call("taiga_bulk_create", {
+        resource: "userstory",
+        items: [
+          { subject: "Bulk epic-link A", epic: epicSubject },
+          { subject: "Bulk epic-link B", epic: epicSubject },
+        ],
+      });
+      for (const item of json.created) track(item.ref as number);
+
+      expect(json.failed).toHaveLength(0);
+      expect(json.created).toHaveLength(2);
+
+      const filtered = await call("taiga_userstory_list", { epic: epicSubject });
+      const linkedRefs = filtered.json.items.map((item: { ref: number }) => item.ref);
+      for (const item of json.created) expect(linkedRefs).toContain(item.ref);
+    });
+
+    it("isolates a bad epic name to its own item while a good one still links", async () => {
+      const epics = await call("taiga_epic_list");
+      const epicSubject = epics.json.items[0].subject;
+
+      const { json } = await call("taiga_bulk_create", {
+        resource: "userstory",
+        items: [
+          { subject: "Bulk epic-link bad", epic: "No Such Epic At All" },
+          { subject: "Bulk epic-link good", epic: epicSubject },
+        ],
+      });
+      for (const item of json.created) track(item.ref as number);
+
+      expect(json.failed).toHaveLength(1);
+      expect(json.failed[0].item.subject).toBe("Bulk epic-link bad");
+      expect(json.failed[0].error).toMatch(/No Such Epic At All/);
+
+      expect(json.created).toHaveLength(1);
+      expect(json.created[0].subject).toBe("Bulk epic-link good");
+
+      const filtered = await call("taiga_userstory_list", { epic: epicSubject });
+      const linkedRefs = filtered.json.items.map((item: { ref: number }) => item.ref);
+      expect(linkedRefs).toContain(json.created[0].ref);
+    });
+
+    it("rejects an `epic` field on a task item instead of ignoring it", async () => {
+      const epics = await call("taiga_epic_list");
+      const epicSubject = epics.json.items[0].subject;
+      const parent = await call("taiga_userstory_create", { subject: "Bulk task-epic parent" });
+      const parentRef = track(parent.json.ref as number);
+
+      const { json } = await call("taiga_bulk_create", {
+        resource: "task",
+        items: [{ subject: "Bulk task with epic", user_story: parentRef, epic: epicSubject }],
+      });
+      for (const item of json.created) trackTask(item.ref as number);
+
+      expect(json.created).toHaveLength(0);
+      expect(json.failed).toHaveLength(1);
+      expect(json.failed[0].error).toMatch(/epic/i);
+    });
+  });
 });

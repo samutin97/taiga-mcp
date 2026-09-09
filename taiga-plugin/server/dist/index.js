@@ -22352,6 +22352,12 @@ async function resolveEpic(ctx, projectId, subject) {
   }
   return match.id;
 }
+async function linkStoryToEpic(ctx, epicId, storyId) {
+  await ctx.client.post(`/epics/${epicId}/related_userstories`, {
+    epic: epicId,
+    user_story: storyId
+  });
+}
 async function applyEpicLink(ctx, projectId, storyId, epic, currentEpics) {
   if (epic === "") {
     for (const linked of currentEpics ?? []) {
@@ -22360,10 +22366,7 @@ async function applyEpicLink(ctx, projectId, storyId, epic, currentEpics) {
     return;
   }
   const epicId = await resolveEpic(ctx, projectId, epic);
-  await ctx.client.post(`/epics/${epicId}/related_userstories`, {
-    epic: epicId,
-    user_story: storyId
-  });
+  await linkStoryToEpic(ctx, epicId, storyId);
 }
 async function resolvePoints(ctx, projectId, value) {
   const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
@@ -22727,13 +22730,33 @@ function registerBulkTool(server, ctx) {
       const def = BULK_RESOURCES[a.resource];
       const projectId = await ctx.cache.resolveProject(a.project);
       const labels = await buildLabels2(ctx, def, projectId);
+      const epicResolutions = /* @__PURE__ */ new Map();
+      if (def.name === "userstory") {
+        const names = new Set(
+          a.items.map((item) => item.epic).filter((value) => typeof value === "string" && value !== "")
+        );
+        for (const name of names) {
+          try {
+            epicResolutions.set(name, { id: await resolveEpic(ctx, projectId, name) });
+          } catch (error2) {
+            epicResolutions.set(name, {
+              error: error2 instanceof Error ? error2.message : String(error2)
+            });
+          }
+        }
+      }
       const created = [];
       const failed = [];
       for (const item of a.items) {
         try {
+          if (def.name !== "userstory" && item.epic !== void 0) {
+            throw new TaigaError(
+              `"epic" only applies to user stories; it has no effect on a ${def.label}.`
+            );
+          }
           const payload = { project: projectId };
           for (const [key, value] of Object.entries(item)) {
-            if (value === void 0) continue;
+            if (value === void 0 || key === "epic") continue;
             const lookup = def.lookups.find((entry) => entry.field === key);
             payload[key] = lookup ? await ctx.cache.resolveLookup(
               projectId,
@@ -22748,7 +22771,17 @@ function registerBulkTool(server, ctx) {
               payload.user_story
             );
           }
+          let epicId;
+          const epicValue = item.epic;
+          if (typeof epicValue === "string" && epicValue !== "") {
+            const resolution = epicResolutions.get(epicValue);
+            if (resolution && "error" in resolution) throw new TaigaError(resolution.error);
+            epicId = resolution?.id;
+          }
           const row = await ctx.client.post(def.path, payload);
+          if (epicId !== void 0) {
+            await linkStoryToEpic(ctx, epicId, row.id);
+          }
           created.push(project(def.name, row, "slim", labels));
         } catch (error2) {
           failed.push({

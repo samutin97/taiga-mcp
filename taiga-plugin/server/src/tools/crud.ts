@@ -106,7 +106,7 @@ async function resolveSprint(
  * and returns an HTTP 500 (not a 400) when given the subject text the tool
  * schema advertises, so the subject has to be resolved here first.
  */
-async function resolveEpic(
+export async function resolveEpic(
   ctx: ToolContext,
   projectId: number,
   subject: string,
@@ -129,14 +129,29 @@ async function resolveEpic(
 }
 
 /**
+ * Link a story to an epic. Taiga models this as its own many-to-many
+ * resource, not a field on the story — verified live: `infra/seed_test_data.py`
+ * links stories to epics via exactly this call.
+ * Exported so `taiga_bulk_create` can reuse it instead of duplicating the
+ * request shape.
+ */
+export async function linkStoryToEpic(
+  ctx: ToolContext,
+  epicId: number,
+  storyId: number,
+): Promise<void> {
+  await ctx.client.post(`/epics/${epicId}/related_userstories`, {
+    epic: epicId,
+    user_story: storyId,
+  });
+}
+
+/**
  * Link a story to an epic, or — when `epic` is the empty string — unlink it
  * from every epic it currently belongs to.
  *
- * Verified live: Taiga models this as its own many-to-many resource, not a
- * field on the story. `infra/seed_test_data.py` links stories to epics via
- * `POST /epics/{epicId}/related_userstories {epic, user_story}`; the
- * matching unlink, confirmed against the local stand the same way,
- * is `DELETE /epics/{epicId}/related_userstories/{userStoryId}`.
+ * The matching unlink endpoint, confirmed against the local stand the same
+ * way as the link one, is `DELETE /epics/{epicId}/related_userstories/{userStoryId}`.
  */
 async function applyEpicLink(
   ctx: ToolContext,
@@ -152,10 +167,7 @@ async function applyEpicLink(
     return;
   }
   const epicId = await resolveEpic(ctx, projectId, epic);
-  await ctx.client.post(`/epics/${epicId}/related_userstories`, {
-    epic: epicId,
-    user_story: storyId,
-  });
+  await linkStoryToEpic(ctx, epicId, storyId);
 }
 
 /**

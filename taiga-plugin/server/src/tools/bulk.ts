@@ -4,6 +4,7 @@ import { type ToolContext, ok, guard } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
+import { resolveEpic, linkStoryToEpic } from "./crud.js";
 
 const MAX_ITEMS = 50;
 
@@ -66,14 +67,48 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
       const projectId = await ctx.cache.resolveProject(a.project);
       const labels = await buildLabels(ctx, def, projectId);
 
+      // Resolve each distinct epic subject at most once per batch, not once
+      // per item — fifty items naming the same epic should not mean fifty
+      // lookups. Only meaningful for user stories; done up front so a bad
+      // epic name fails every item that names it without touching Taiga for
+      // any of them (mirrors how a bad `status` never reaches ctx.client.post
+      // below).
+      const epicResolutions = new Map<string, { id: number } | { error: string }>();
+      if (def.name === "userstory") {
+        const names = new Set(
+          a.items
+            .map((item) => item.epic)
+            .filter((value): value is string => typeof value === "string" && value !== ""),
+        );
+        for (const name of names) {
+          try {
+            epicResolutions.set(name, { id: await resolveEpic(ctx, projectId, name) });
+          } catch (error) {
+            epicResolutions.set(name, {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      }
+
       const created: Record<string, unknown>[] = [];
       const failed: { item: Record<string, unknown>; error: string }[] = [];
 
       for (const item of a.items) {
         try {
+          // `epic` only makes sense for user stories; a task/issue item
+          // carrying it would otherwise be silently ignored — the exact
+          // "success response but no link" problem this field exists to
+          // avoid on the single-create path.
+          if (def.name !== "userstory" && item.epic !== undefined) {
+            throw new TaigaError(
+              `"epic" only applies to user stories; it has no effect on a ${def.label}.`,
+            );
+          }
+
           const payload: Record<string, unknown> = { project: projectId };
           for (const [key, value] of Object.entries(item)) {
-            if (value === undefined) continue;
+            if (value === undefined || key === "epic") continue;
             const lookup = def.lookups.find((entry) => entry.field === key);
             payload[key] = lookup
               ? await ctx.cache.resolveLookup(
@@ -88,7 +123,21 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
               projectId, "us", payload.user_story as number,
             );
           }
+
+          // Fail this item on a bad epic name before creating anything, so a
+          // typo'd epic never leaves an unlinked story behind.
+          let epicId: number | undefined;
+          const epicValue = item.epic as string | undefined;
+          if (typeof epicValue === "string" && epicValue !== "") {
+            const resolution = epicResolutions.get(epicValue);
+            if (resolution && "error" in resolution) throw new TaigaError(resolution.error);
+            epicId = resolution?.id;
+          }
+
           const row = await ctx.client.post<Record<string, unknown>>(def.path, payload);
+          if (epicId !== undefined) {
+            await linkStoryToEpic(ctx, epicId, row.id as number);
+          }
           created.push(project(def.name, row, "slim", labels));
         } catch (error) {
           failed.push({
