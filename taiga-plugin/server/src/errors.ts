@@ -15,9 +15,13 @@ export function extractMessage(body: unknown): string | undefined {
   if (typeof body === "string" && body.trim()) return body.trim().slice(0, 500);
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
-    const direct = record._error_message ?? record.detail ?? record.non_field_errors;
-    if (typeof direct === "string") return direct;
-    if (Array.isArray(direct) && typeof direct[0] === "string") return direct[0];
+    // Walk through candidate keys and accept the first one that is actually usable.
+    // Skip candidates of other types instead of short-circuiting on them.
+    for (const key of ["_error_message", "detail", "non_field_errors"]) {
+      const candidate = record[key];
+      if (typeof candidate === "string") return candidate;
+      if (Array.isArray(candidate) && typeof candidate[0] === "string") return candidate[0];
+    }
 
     const fieldErrors = Object.entries(record)
       .filter(([key]) => !key.startsWith("_"))

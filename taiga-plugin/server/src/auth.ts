@@ -48,12 +48,15 @@ export class TaigaAuth {
 
     const body = await response.json().catch(() => undefined);
     if (!response.ok) {
-      // Login failures are always a credentials problem — say so explicitly
-      // rather than passing Taiga's terse message through.
-      throw new TaigaError(`Taiga rejected the login for user "${this.config.username}".`, {
-        status: response.status,
-        hint: "Check TAIGA_USERNAME and TAIGA_PASSWORD.",
-      });
+      // Only 400, 401, 403 indicate credentials problems.
+      // Other statuses (500, 502, 503, 429, etc.) should report the real cause.
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        throw new TaigaError(`Taiga rejected the login for user "${this.config.username}".`, {
+          status: response.status,
+          hint: "Check TAIGA_USERNAME and TAIGA_PASSWORD.",
+        });
+      }
+      throw describeHttpError(response.status, body);
     }
 
     const record = (body ?? {}) as Record<string, unknown>;

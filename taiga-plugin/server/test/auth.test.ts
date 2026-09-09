@@ -67,4 +67,15 @@ describe("TaigaAuth", () => {
     await auth.getToken();
     expect(auth.userId).toBe(42);
   });
+
+  it("login returning HTTP 503 produces error that does not mention credentials", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({}, 503));
+    const auth = new TaigaAuth(config, fetchImpl as unknown as typeof fetch);
+
+    await expect(auth.getToken()).rejects.toThrow(/503/);
+    await expect(auth.getToken()).rejects.not.toThrow(/TAIGA_USERNAME/);
+    await expect(auth.getToken()).rejects.not.toThrow(/TAIGA_PASSWORD/);
+  });
 });
