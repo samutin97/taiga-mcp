@@ -22113,7 +22113,8 @@ async function locate(ctx, def, projectId, args) {
   }
   if (args.slug) {
     const found = await ctx.client.list(def.path, {
-      project: projectId
+      project: projectId,
+      page_size: 1e3
     });
     const match = found.items.find((item) => item.slug === args.slug);
     if (!match) {
@@ -22143,7 +22144,8 @@ async function resolveFields(ctx, def, projectId, input) {
 }
 async function resolveSprint(ctx, projectId, name) {
   const milestones = await ctx.client.list("/milestones", {
-    project: projectId
+    project: projectId,
+    page_size: 1e3
   });
   const match = milestones.items.find(
     (m) => m.name.toLowerCase() === name.trim().toLowerCase()
@@ -22157,7 +22159,8 @@ async function resolveSprint(ctx, projectId, name) {
 }
 async function resolveEpic(ctx, projectId, subject) {
   const epics = await ctx.client.list("/epics", {
-    project: projectId
+    project: projectId,
+    page_size: 1e3
   });
   const match = epics.items.find(
     (e) => e.subject.toLowerCase() === subject.trim().toLowerCase()
@@ -22305,14 +22308,14 @@ function registerCrudTools(server, ctx, def) {
           `${def.path}/${id}`
         );
         if (appendText !== void 0) {
-          const existing = current.description ?? "";
-          changes.description = existing ? `${existing}
+          const base = typeof changes.description === "string" ? changes.description : current.description ?? "";
+          changes.description = base ? `${base}
 
 ${appendText}` : appendText;
         }
         if (addTags !== void 0) {
-          const existing = Array.isArray(current.tags) ? current.tags.map((t) => Array.isArray(t) ? t[0] : t) : [];
-          changes.tags = [.../* @__PURE__ */ new Set([...existing, ...addTags])];
+          const base = Array.isArray(changes.tags) ? changes.tags : Array.isArray(current.tags) ? current.tags.map((t) => Array.isArray(t) ? t[0] : t) : [];
+          changes.tags = [.../* @__PURE__ */ new Set([...base, ...addTags])];
         }
       }
       if (Object.keys(changes).length === 0) {

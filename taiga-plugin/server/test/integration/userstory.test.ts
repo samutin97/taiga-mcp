@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { startClient } from "../helpers/mcp-client.js";
 
 const STAND = "http://localhost:9000";
@@ -22,6 +22,25 @@ async function call(name: string, args: Record<string, unknown> = {}) {
     isError: result.isError === true,
   };
 }
+
+/** Refs created by a test, deleted after it whether it passed or failed. */
+const createdRefs: number[] = [];
+
+function track(ref: number): number {
+  createdRefs.push(ref);
+  return ref;
+}
+
+afterEach(async () => {
+  while (createdRefs.length > 0) {
+    const ref = createdRefs.pop()!;
+    try {
+      await call("taiga_userstory_delete", { ref, confirm: true });
+    } catch {
+      // Best effort: a test may already have deleted it deliberately.
+    }
+  }
+});
 
 describe("user story CRUD", () => {
   it("lists stories in slim form", async () => {
@@ -60,7 +79,7 @@ describe("user story CRUD", () => {
       tags: ["temp"],
     });
     expect(created.json.ref).toBeGreaterThan(0);
-    const ref = created.json.ref;
+    const ref = track(created.json.ref);
 
     const fetched = await call("taiga_userstory_get", { ref });
     expect(fetched.json.subject).toBe("Temp story from integration test");
@@ -87,14 +106,48 @@ describe("user story CRUD", () => {
       subject: "Append test",
       description: "First line.",
     });
-    const ref = created.json.ref;
+    const ref = track(created.json.ref);
 
     await call("taiga_userstory_update", { ref, append_description: "Second line." });
     const after = await call("taiga_userstory_get", { ref, fields: "full" });
     expect(after.json.description).toContain("First line.");
     expect(after.json.description).toContain("Second line.");
+  });
 
-    await call("taiga_userstory_delete", { ref, confirm: true });
+  it("uses a same-call description as the append base, not the old server value", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Update+append precedence test",
+      description: "First line.",
+    });
+    const ref = track(created.json.ref);
+
+    await call("taiga_userstory_update", {
+      ref,
+      description: "Replaced.",
+      append_description: "Added.",
+    });
+
+    const after = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(after.json.description).toContain("Replaced.");
+    expect(after.json.description).toContain("Added.");
+    expect(after.json.description).not.toContain("First line.");
+  });
+
+  it("uses a same-call tags value as the base when adding tags, not the old server value", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Update+add_tags precedence test",
+      tags: ["old"],
+    });
+    const ref = track(created.json.ref);
+
+    const updated = await call("taiga_userstory_update", {
+      ref,
+      tags: ["replaced"],
+      add_tags: ["added"],
+    });
+
+    expect(updated.json.tags.sort()).toEqual(["added", "replaced"]);
+    expect(updated.json.tags).not.toContain("old");
   });
 
   // The next two tests cover real Taiga API behavior the brief did not anticipate
@@ -119,13 +172,11 @@ describe("user story CRUD", () => {
       points: "5",
     });
     expect(created.isError).toBe(false);
-    const ref = created.json.ref;
+    const ref = track(created.json.ref);
     expect(created.json.points).toBe(5);
 
     const updated = await call("taiga_userstory_update", { ref, points: "8" });
     expect(updated.isError).toBe(false);
     expect(updated.json.points).toBe(8);
-
-    await call("taiga_userstory_delete", { ref, confirm: true });
   });
 });

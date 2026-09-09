@@ -35,8 +35,11 @@ async function locate(
     return ctx.cache.resolveRef(projectId, def.resolverKey, args.ref);
   }
   if (args.slug) {
+    // page_size explicit: Taiga's default page (30) would silently hide a
+    // valid slug on a project with more milestones/wiki pages than that.
     const found = await ctx.client.list<{ id: number; slug: string }>(def.path, {
       project: projectId,
+      page_size: 1000,
     });
     // Some Taiga list endpoints ignore a ?slug= filter and return everything,
     // so match here rather than trusting the server to have filtered.
@@ -79,8 +82,11 @@ async function resolveSprint(
   projectId: number,
   name: string,
 ): Promise<number> {
+  // page_size explicit: Taiga's default page (30) would silently hide a
+  // valid sprint name on a project with more milestones than that.
   const milestones = await ctx.client.list<{ id: number; name: string }>("/milestones", {
     project: projectId,
+    page_size: 1000,
   });
   const match = milestones.items.find(
     (m) => m.name.toLowerCase() === name.trim().toLowerCase(),
@@ -105,8 +111,11 @@ async function resolveEpic(
   projectId: number,
   subject: string,
 ): Promise<number> {
+  // page_size explicit: Taiga's default page (30) would silently hide a
+  // valid epic subject on a project with more epics than that.
   const epics = await ctx.client.list<{ id: number; subject: string }>("/epics", {
     project: projectId,
+    page_size: 1000,
   });
   const match = epics.items.find(
     (e) => e.subject.toLowerCase() === subject.trim().toLowerCase(),
@@ -296,18 +305,27 @@ export function registerCrudTools(
       }
 
       if (appendText !== undefined || addTags !== undefined) {
+        // A value passed in this same call (already resolved into `changes`)
+        // takes precedence over the server's current value as the base to
+        // append/add onto — otherwise an explicit `description`/`tags` here
+        // would be silently discarded in favour of the stale server value.
         const current = await ctx.client.get<Record<string, unknown>>(
           `${def.path}/${id}`,
         );
         if (appendText !== undefined) {
-          const existing = (current.description as string | null) ?? "";
-          changes.description = existing ? `${existing}\n\n${appendText}` : appendText;
+          const base =
+            typeof changes.description === "string"
+              ? changes.description
+              : ((current.description as string | null) ?? "");
+          changes.description = base ? `${base}\n\n${appendText}` : appendText;
         }
         if (addTags !== undefined) {
-          const existing = Array.isArray(current.tags)
-            ? (current.tags as unknown[]).map((t) => (Array.isArray(t) ? t[0] : t))
-            : [];
-          changes.tags = [...new Set([...existing, ...addTags])];
+          const base = Array.isArray(changes.tags)
+            ? (changes.tags as string[])
+            : Array.isArray(current.tags)
+              ? (current.tags as unknown[]).map((t) => (Array.isArray(t) ? t[0] : t))
+              : [];
+          changes.tags = [...new Set([...(base as string[]), ...addTags])];
         }
       }
 
