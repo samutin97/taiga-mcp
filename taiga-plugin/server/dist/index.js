@@ -22556,7 +22556,7 @@ async function locateItem(ctx, resource, projectId, id, ref) {
   throw new TaigaError("Specify the item by `ref` (the #number) or `id`.");
 }
 function registerCommentTools(server, ctx) {
-  const common = {
+  const common2 = {
     project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
     resource: resourceArg,
     id: external_exports.number().optional().describe("Internal item id."),
@@ -22565,7 +22565,7 @@ function registerCommentTools(server, ctx) {
   server.tool(
     "taiga_comment_list",
     "List the comments on a user story, task, issue or epic, oldest first.",
-    common,
+    common2,
     guard(async (args) => {
       const a = args;
       const resource = a.resource;
@@ -22593,7 +22593,7 @@ function registerCommentTools(server, ctx) {
   server.tool(
     "taiga_comment_add",
     "Add a comment to a user story, task, issue or epic.",
-    { ...common, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
+    { ...common2, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
     guard(async (args) => {
       const a = args;
       const resource = a.resource;
@@ -22801,6 +22801,117 @@ function registerStatsTool(server, ctx) {
   );
 }
 
+// src/tools/attachment.ts
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { basename, join } from "node:path";
+var ATTACHABLE = {
+  userstory: { path: "/userstories/attachments", resolverKey: "us" },
+  task: { path: "/tasks/attachments", resolverKey: "task" },
+  issue: { path: "/issues/attachments", resolverKey: "issue" },
+  epic: { path: "/epics/attachments", resolverKey: "epic" }
+};
+var common = {
+  project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+  resource: external_exports.enum(["userstory", "task", "issue", "epic"]).describe("Which kind of item the attachment belongs to."),
+  id: external_exports.number().optional().describe("Internal item id."),
+  ref: external_exports.number().optional().describe("The #number shown in Taiga.")
+};
+async function locate2(ctx, resource, projectId, id, ref) {
+  if (typeof id === "number") return id;
+  if (typeof ref === "number") {
+    return ctx.cache.resolveRef(projectId, ATTACHABLE[resource].resolverKey, ref);
+  }
+  throw new TaigaError("Specify the item by `ref` (the #number) or `id`.");
+}
+function slim(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    size: row.size,
+    url: row.url,
+    created_date: row.created_date
+  };
+}
+function registerAttachmentTools(server, ctx) {
+  server.tool(
+    "taiga_attachment_list",
+    "List the files attached to a user story, task, issue or epic.",
+    common,
+    guard(async (args) => {
+      const a = args;
+      const resource = a.resource;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const objectId = await locate2(
+        ctx,
+        resource,
+        projectId,
+        a.id,
+        a.ref
+      );
+      const result = await ctx.client.list(
+        ATTACHABLE[resource].path,
+        { project: projectId, object_id: objectId }
+      );
+      return ok({ total: result.total, items: result.items.map(slim) });
+    })
+  );
+  server.tool(
+    "taiga_attachment_upload",
+    "Attach a local file to a user story, task, issue or epic.",
+    { ...common, file_path: external_exports.string().describe("Absolute path to the file to upload.") },
+    guard(async (args) => {
+      const a = args;
+      const resource = a.resource;
+      const filePath = a.file_path;
+      let data;
+      try {
+        data = await readFile(filePath);
+      } catch {
+        throw new TaigaError(`Cannot read the file "${filePath}".`, {
+          hint: "Pass an absolute path to a file that exists."
+        });
+      }
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const objectId = await locate2(
+        ctx,
+        resource,
+        projectId,
+        a.id,
+        a.ref
+      );
+      const form = new FormData();
+      form.set("project", String(projectId));
+      form.set("object_id", String(objectId));
+      form.set("attached_file", new Blob([new Uint8Array(data)]), basename(filePath));
+      const created = await ctx.client.postForm(
+        ATTACHABLE[resource].path,
+        form
+      );
+      return ok(slim(created));
+    })
+  );
+  server.tool(
+    "taiga_attachment_download",
+    "Download an attachment to a local directory. Get the id from taiga_attachment_list.",
+    {
+      attachment_id: external_exports.number().describe("Attachment id."),
+      resource: common.resource,
+      target_dir: external_exports.string().describe("Absolute path to the directory to save into.")
+    },
+    guard(async (args) => {
+      const a = args;
+      const row = await ctx.client.get(
+        `${ATTACHABLE[a.resource].path}/${a.attachment_id}`
+      );
+      const { data } = await ctx.client.getBinary(String(row.url));
+      await mkdir(a.target_dir, { recursive: true });
+      const savedTo = join(a.target_dir, String(row.name));
+      await writeFile(savedTo, data);
+      return ok({ saved_to: savedTo, size: data.byteLength });
+    })
+  );
+}
+
 // src/index.ts
 function createServer(ctx = createContext()) {
   const server = new McpServer({ name: "taiga", version: "0.1.0" });
@@ -22811,6 +22922,7 @@ function createServer(ctx = createContext()) {
   registerSearchTool(server, ctx);
   registerBulkTool(server, ctx);
   registerStatsTool(server, ctx);
+  registerAttachmentTools(server, ctx);
   return server;
 }
 async function main() {
