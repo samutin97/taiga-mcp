@@ -59,7 +59,10 @@ export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
       }
 
       const stats = await ctx.client.get<MilestoneStats>(`/milestones/${match.id}/stats`);
-      const points = Object.values(stats.total_points)[0] ?? 0;
+      const points = Object.values(stats.total_points ?? {}).reduce(
+        (sum, value) => sum + (value ?? 0),
+        0,
+      );
       const completed = stats.completed_points.reduce((s, v) => s + (v ?? 0), 0);
       return ok({
         scope: "sprint",

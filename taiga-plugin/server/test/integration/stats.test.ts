@@ -41,4 +41,10 @@ describe("stats", () => {
     expect(isError).toBe(true);
     expect(raw).toMatch(/Sprint 1/);
   });
+
+  it("reports actual numeric values for sprint totals and completed work", async () => {
+    const { json } = await call("taiga_stats", { sprint: "Sprint 1" });
+    expect(json.total_points).toBe(19.0);
+    expect(json.completed_points).toBe(8.0);
+  });
 });
