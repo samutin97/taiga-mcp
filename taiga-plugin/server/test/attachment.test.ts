@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -79,6 +79,51 @@ describe("taiga_attachment_download path safety", () => {
       expect(existsSync(json.saved_to)).toBe(true);
       // The `..` segments in the stored name must not have escaped target_dir.
       expect(existsSync(join(targetDir, "..", "..", "escaped.txt"))).toBe(false);
+    } finally {
+      rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("taiga_attachment_download rejects a degenerate `..` file name", () => {
+  it("errors with a clear message instead of writing into the parent of target_dir", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "taiga-attachment-unit-"));
+    try {
+      const { server, handlerFor } = captureHandler();
+      const ctx = {
+        cache: {},
+        client: {
+          get: vi.fn(async () => ({
+            id: 9,
+            // basename("..") returns ".." unchanged (unlike "../../escaped.txt",
+            // which basename reduces to "escaped.txt"), so this name needs its
+            // own guard rather than relying on basename alone — without it,
+            // join(target_dir, "..") resolves to target_dir's PARENT.
+            name: "..",
+            url: "http://example.test/attachments/dotdot",
+          })),
+          getBinary: vi.fn(async () => ({
+            data: Buffer.from("payload"),
+            contentType: "text/plain",
+          })),
+        },
+      } as unknown as ToolContext;
+
+      registerAttachmentTools(server, ctx);
+      const { result, json, raw } = await callHandler(
+        handlerFor("taiga_attachment_download"),
+        { attachment_id: 9, resource: "userstory", target_dir: targetDir },
+      );
+
+      expect(result.isError).toBe(true);
+      expect(json).toBeUndefined();
+      // The specific message proves the dedicated guard fired — not some
+      // incidental EISDIR from Node refusing to open an existing directory
+      // as a file, which is what would happen if the guard were removed
+      // and the write were merely rejected instead of prevented.
+      expect(raw).toMatch(/unusable file name/);
+      // target_dir itself must stay empty: nothing was written anywhere.
+      expect(readdirSync(targetDir)).toEqual([]);
     } finally {
       rmSync(targetDir, { recursive: true, force: true });
     }

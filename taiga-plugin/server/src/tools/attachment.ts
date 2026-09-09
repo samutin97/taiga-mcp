@@ -151,8 +151,18 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
       await mkdir(a.target_dir, { recursive: true });
       // basename strips any directory components (including `..`) that a
       // hostile or careless attachment name might carry, so the write can
-      // never land outside target_dir.
-      const savedTo = join(a.target_dir, basename(String(row.name)));
+      // never land outside target_dir — except basename("..") returns ".."
+      // unchanged, which join() would then resolve to the PARENT of
+      // target_dir. Reject that (and the equally degenerate "" and ".")
+      // outright so the claim above is actually true.
+      const safeName = basename(String(row.name));
+      if (safeName === "" || safeName === "." || safeName === "..") {
+        throw new TaigaError(
+          `Attachment ${a.attachment_id} has an unusable file name.`,
+          { hint: "Download it from the Taiga web interface instead." },
+        );
+      }
+      const savedTo = join(a.target_dir, safeName);
       await writeFile(savedTo, data);
       return ok({ saved_to: savedTo, size: data.byteLength });
     }),

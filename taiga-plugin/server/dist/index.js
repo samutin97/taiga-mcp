@@ -22923,7 +22923,14 @@ function registerAttachmentTools(server, ctx) {
       );
       const { data } = await ctx.client.getBinary(String(row.url));
       await mkdir(a.target_dir, { recursive: true });
-      const savedTo = join(a.target_dir, basename(String(row.name)));
+      const safeName = basename(String(row.name));
+      if (safeName === "" || safeName === "." || safeName === "..") {
+        throw new TaigaError(
+          `Attachment ${a.attachment_id} has an unusable file name.`,
+          { hint: "Download it from the Taiga web interface instead." }
+        );
+      }
+      const savedTo = join(a.target_dir, safeName);
       await writeFile(savedTo, data);
       return ok({ saved_to: savedTo, size: data.byteLength });
     })
