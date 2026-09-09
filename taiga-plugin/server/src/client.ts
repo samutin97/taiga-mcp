@@ -1,6 +1,6 @@
 import type { TaigaConfig } from "./config.js";
 import type { TaigaAuth } from "./auth.js";
-import { TaigaError, describeHttpError, extractMessage } from "./errors.js";
+import { TaigaError, describeHttpError } from "./errors.js";
 
 export type Params = Record<string, string | number | boolean | undefined>;
 

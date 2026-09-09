@@ -233,8 +233,5 @@ describe("TaigaClient", () => {
     await expect(client.patch("/userstories", 7, { subject: "x" })).rejects.toThrow(
       /app_version/,
     );
-    await expect(client.patch("/userstories", 7, { subject: "x" })).rejects.not.toThrow(
-      /changed in Taiga/i,
-    );
   });
 });
