@@ -59,6 +59,8 @@ export const USER_STORY: ResourceDef = {
         "Story points value, e.g. '5'. Applied to the project's primary " +
           "estimation role; other roles are left unestimated.",
       ),
+    epic: z.string().optional()
+      .describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: z.string().optional().describe("ISO date, e.g. 2026-09-30."),
   },
@@ -75,6 +77,8 @@ export const USER_STORY: ResourceDef = {
         "Story points value, e.g. '5'. Applied to the project's primary " +
           "estimation role; other roles keep their current estimate.",
       ),
+    epic: z.string().optional()
+      .describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: z.string().optional(),
     is_blocked: z.boolean().optional(),

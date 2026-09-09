@@ -180,3 +180,69 @@ describe("user story CRUD", () => {
     expect(updated.json.points).toBe(8);
   });
 });
+
+// Taiga models story-to-epic linking as its own many-to-many resource
+// (POST/DELETE /epics/{epicId}/related_userstories), not a field on the
+// story — confirmed live against this stand before writing the tool code
+// (see task-13-report.md). The `epic` field on taiga_userstory_create and
+// taiga_userstory_update hides that behind the same human-name convention
+// as every other field. Epic subjects are read from taiga_epic_list rather
+// than hardcoded, since the sandbox's two epics are project fixtures.
+describe("epic linking", () => {
+  it("links a newly created story to an epic via the `epic` field", async () => {
+    const epics = await call("taiga_epic_list");
+    expect(epics.json.items.length).toBeGreaterThanOrEqual(1);
+    const epicSubject = epics.json.items[0].subject;
+
+    const created = await call("taiga_userstory_create", {
+      subject: "Epic-link-on-create test",
+      epic: epicSubject,
+    });
+    expect(created.isError).toBe(false);
+    const ref = track(created.json.ref);
+
+    const filtered = await call("taiga_userstory_list", { epic: epicSubject });
+    expect(filtered.isError).toBe(false);
+    expect(filtered.json.items.map((item: { ref: number }) => item.ref)).toContain(ref);
+  });
+
+  it("links an existing story to an epic via `epic` on update", async () => {
+    const epics = await call("taiga_epic_list");
+    expect(epics.json.items.length).toBeGreaterThanOrEqual(2);
+    const epicSubject = epics.json.items[1].subject;
+
+    const created = await call("taiga_userstory_create", {
+      subject: "Epic-link-on-update test",
+    });
+    const ref = track(created.json.ref);
+
+    const before = await call("taiga_userstory_list", { epic: epicSubject });
+    expect(before.json.items.map((item: { ref: number }) => item.ref)).not.toContain(ref);
+
+    const updated = await call("taiga_userstory_update", { ref, epic: epicSubject });
+    expect(updated.isError).toBe(false);
+
+    const after = await call("taiga_userstory_list", { epic: epicSubject });
+    expect(after.json.items.map((item: { ref: number }) => item.ref)).toContain(ref);
+  });
+
+  it("unlinks a story from its epic when `epic` is set to an empty string", async () => {
+    const epics = await call("taiga_epic_list");
+    const epicSubject = epics.json.items[0].subject;
+
+    const created = await call("taiga_userstory_create", {
+      subject: "Epic-unlink test",
+      epic: epicSubject,
+    });
+    const ref = track(created.json.ref);
+
+    const linked = await call("taiga_userstory_list", { epic: epicSubject });
+    expect(linked.json.items.map((item: { ref: number }) => item.ref)).toContain(ref);
+
+    const unlinked = await call("taiga_userstory_update", { ref, epic: "" });
+    expect(unlinked.isError).toBe(false);
+
+    const after = await call("taiga_userstory_list", { epic: epicSubject });
+    expect(after.json.items.map((item: { ref: number }) => item.ref)).not.toContain(ref);
+  });
+});

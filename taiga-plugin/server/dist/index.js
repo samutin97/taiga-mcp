@@ -22078,6 +22078,7 @@ var USER_STORY = {
     points: external_exports.string().optional().describe(
       "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles are left unestimated."
     ),
+    epic: external_exports.string().optional().describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: external_exports.string().optional().describe("ISO date, e.g. 2026-09-30.")
   },
@@ -22090,6 +22091,7 @@ var USER_STORY = {
     points: external_exports.string().optional().describe(
       "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles keep their current estimate."
     ),
+    epic: external_exports.string().optional().describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: external_exports.string().optional(),
     is_blocked: external_exports.boolean().optional(),
@@ -22350,6 +22352,19 @@ async function resolveEpic(ctx, projectId, subject) {
   }
   return match.id;
 }
+async function applyEpicLink(ctx, projectId, storyId, epic, currentEpics) {
+  if (epic === "") {
+    for (const linked of currentEpics ?? []) {
+      await ctx.client.remove(`/epics/${linked.id}/related_userstories`, storyId);
+    }
+    return;
+  }
+  const epicId = await resolveEpic(ctx, projectId, epic);
+  await ctx.client.post(`/epics/${epicId}/related_userstories`, {
+    epic: epicId,
+    user_story: storyId
+  });
+}
 async function resolvePoints(ctx, projectId, value) {
   const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
   const roles = await ctx.client.list(
@@ -22429,7 +22444,7 @@ function registerCrudTools(server, ctx, def) {
     `Create a ${def.label}. Status and assignee are given by name, not by id.`,
     { project: projectRef2, ...def.createFields },
     guard(async (args) => {
-      const { project: ref, sprint, points, ...rest } = args;
+      const { project: ref, sprint, points, epic, ...rest } = args;
       const projectId = await ctx.cache.resolveProject(ref);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
@@ -22443,6 +22458,9 @@ function registerCrudTools(server, ctx, def) {
         payload.points = await resolvePoints(ctx, projectId, points);
       }
       const created = await ctx.client.post(def.path, payload);
+      if (typeof epic === "string" && epic !== "") {
+        await applyEpicLink(ctx, projectId, created.id, epic, null);
+      }
       const labels = await buildLabels(ctx, def, projectId);
       return ok(project(def.name, created, "slim", labels));
     })
@@ -22467,6 +22485,7 @@ function registerCrudTools(server, ctx, def) {
       const addTags = a.add_tags;
       const sprint = a.sprint;
       const points = a.points;
+      const epic = a.epic;
       for (const key of [
         "project",
         "id",
@@ -22475,7 +22494,8 @@ function registerCrudTools(server, ctx, def) {
         "append_description",
         "add_tags",
         "sprint",
-        "points"
+        "points",
+        "epic"
       ]) {
         delete a[key];
       }
@@ -22504,14 +22524,19 @@ ${appendText}` : appendText;
           changes.tags = [.../* @__PURE__ */ new Set([...base, ...addTags])];
         }
       }
-      if (Object.keys(changes).length === 0) {
+      if (Object.keys(changes).length === 0 && epic === void 0) {
         throw new TaigaError(`Nothing to change on this ${def.label}.`);
       }
-      const updated = await ctx.client.patch(
-        def.path,
-        id,
-        changes
-      );
+      const updated = Object.keys(changes).length > 0 ? await ctx.client.patch(def.path, id, changes) : await ctx.client.get(`${def.path}/${id}`);
+      if (epic !== void 0) {
+        await applyEpicLink(
+          ctx,
+          projectId,
+          id,
+          epic,
+          updated.epics
+        );
+      }
       const labels = await buildLabels(ctx, def, projectId);
       return ok(project(def.name, updated, "slim", labels));
     })

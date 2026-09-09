@@ -129,6 +129,36 @@ async function resolveEpic(
 }
 
 /**
+ * Link a story to an epic, or — when `epic` is the empty string — unlink it
+ * from every epic it currently belongs to.
+ *
+ * Verified live: Taiga models this as its own many-to-many resource, not a
+ * field on the story. `infra/seed_test_data.py` links stories to epics via
+ * `POST /epics/{epicId}/related_userstories {epic, user_story}`; the
+ * matching unlink, confirmed against the local stand the same way,
+ * is `DELETE /epics/{epicId}/related_userstories/{userStoryId}`.
+ */
+async function applyEpicLink(
+  ctx: ToolContext,
+  projectId: number,
+  storyId: number,
+  epic: string,
+  currentEpics: { id: number }[] | null,
+): Promise<void> {
+  if (epic === "") {
+    for (const linked of currentEpics ?? []) {
+      await ctx.client.remove(`/epics/${linked.id}/related_userstories`, storyId);
+    }
+    return;
+  }
+  const epicId = await resolveEpic(ctx, projectId, epic);
+  await ctx.client.post(`/epics/${epicId}/related_userstories`, {
+    epic: epicId,
+    user_story: storyId,
+  });
+}
+
+/**
  * Resolve a human points value (e.g. "5") to the per-role map Taiga's
  * userstory.points field actually requires.
  *
@@ -244,7 +274,7 @@ export function registerCrudTools(
     `Create a ${def.label}. Status and assignee are given by name, not by id.`,
     { project: projectRef, ...def.createFields },
     guard(async (args) => {
-      const { project: ref, sprint, points, ...rest } = args as Record<string, unknown>;
+      const { project: ref, sprint, points, epic, ...rest } = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(ref as string | undefined);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
@@ -259,6 +289,11 @@ export function registerCrudTools(
         payload.points = await resolvePoints(ctx, projectId, points as string | number);
       }
       const created = await ctx.client.post<Record<string, unknown>>(def.path, payload);
+      // The link needs the story's id, so it can only happen after create
+      // returns. An empty string here (nothing to unlink yet) is a no-op.
+      if (typeof epic === "string" && epic !== "") {
+        await applyEpicLink(ctx, projectId, created.id as number, epic, null);
+      }
       const labels = await buildLabels(ctx, def, projectId);
       return ok(project(def.name, created, "slim", labels));
     }),
@@ -297,8 +332,9 @@ export function registerCrudTools(
       const addTags = a.add_tags as string[] | undefined;
       const sprint = a.sprint as string | undefined;
       const points = a.points as string | number | undefined;
+      const epic = a.epic as string | undefined;
       for (const key of [
-        "project", "id", "ref", "slug", "append_description", "add_tags", "sprint", "points",
+        "project", "id", "ref", "slug", "append_description", "add_tags", "sprint", "points", "epic",
       ]) {
         delete a[key];
       }
@@ -340,15 +376,24 @@ export function registerCrudTools(
         }
       }
 
-      if (Object.keys(changes).length === 0) {
+      if (Object.keys(changes).length === 0 && epic === undefined) {
         throw new TaigaError(`Nothing to change on this ${def.label}.`);
       }
 
-      const updated = await ctx.client.patch<Record<string, unknown>>(
-        def.path,
-        id,
-        changes,
-      );
+      // Skip a no-op PATCH when linking/unlinking the epic is the only
+      // requested change; the story's current data (including its existing
+      // epic links, needed below to unlink) comes from a plain read instead.
+      const updated =
+        Object.keys(changes).length > 0
+          ? await ctx.client.patch<Record<string, unknown>>(def.path, id, changes)
+          : await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
+
+      if (epic !== undefined) {
+        await applyEpicLink(
+          ctx, projectId, id, epic, updated.epics as { id: number }[] | null,
+        );
+      }
+
       const labels = await buildLabels(ctx, def, projectId);
       return ok(project(def.name, updated, "slim", labels));
     }),
