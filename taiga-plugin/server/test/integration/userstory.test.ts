@@ -55,9 +55,12 @@ describe("user story CRUD", () => {
     );
   });
 
-  it("keeps a nine-story listing under 800 tokens", async () => {
+  it("keeps a nine-story listing under the spec's 500-token target", async () => {
+    // The spec (§7) targets 500 tokens for this listing. The shipped
+    // assertion was 800 only to accommodate pretty-printing the response
+    // with an indent, which cost 44% of every payload the plugin returns.
     const { raw } = await call("taiga_userstory_list", { limit: 9 });
-    expect(raw.length / 4).toBeLessThan(800);
+    expect(raw.length / 4).toBeLessThan(500);
   });
 
   it("filters by status name", async () => {
@@ -84,6 +87,98 @@ describe("user story CRUD", () => {
     for (const item of backlog.json.items) {
       expect(item.sprint).toBeNull();
     }
+  });
+
+  it("says what was looked for when a #ref does not exist", async () => {
+    // Taiga's /resolver answers a miss with HTTP 404 and an EMPTY
+    // `_error_message`, which used to arrive as an empty tool result: an
+    // error with no text at all, on the addressing mode the skills teach.
+    const { raw, isError } = await call("taiga_userstory_get", { ref: 99999 });
+    expect(isError).toBe(true);
+    expect(raw.trim()).not.toBe("");
+    expect(raw).toContain("99999");
+    expect(raw).toContain("mcp-sandbox");
+  });
+
+  it("refuses `sprint` and `in_backlog: true` together instead of honouring one", async () => {
+    // Both write params.milestone; whichever the filter loop reached last
+    // won, and the caller was never told the other had been discarded.
+    const sprints = await call("taiga_sprint_list");
+    const sprintName = sprints.json.items[0].name;
+    const { raw, isError } = await call("taiga_userstory_list", {
+      sprint: sprintName,
+      in_backlog: true,
+    });
+    expect(isError).toBe(true);
+    expect(raw).toMatch(/in_backlog/);
+  });
+
+  it("moves a story into a sprint and back to the backlog with an empty string", async () => {
+    const sprints = await call("taiga_sprint_list");
+    const sprintName = sprints.json.items[0].name;
+
+    const created = await call("taiga_userstory_create", {
+      subject: "Sprint clear test",
+      sprint: sprintName,
+    });
+    const ref = track(created.json.ref);
+
+    expect(created.json.sprint).toBe(sprintName);
+
+    const cleared = await call("taiga_userstory_update", { ref, sprint: "" });
+    expect(cleared.isError).toBe(false);
+
+    // Read it back rather than trusting the update response.
+    const after = await call("taiga_userstory_get", { ref });
+    expect(after.json.sprint).toBeNull();
+  });
+
+  it("unassigns a story with an empty assigned_to", async () => {
+    const schema = await call("taiga_project_schema");
+    const member = schema.json.lookups.member[0].name;
+
+    const created = await call("taiga_userstory_create", {
+      subject: "Unassign test",
+      assigned_to: member,
+    });
+    const ref = track(created.json.ref);
+
+    expect(created.json.assigned_to).toBe(member);
+
+    const cleared = await call("taiga_userstory_update", { ref, assigned_to: "" });
+    expect(cleared.isError).toBe(false);
+
+    const after = await call("taiga_userstory_get", { ref });
+    expect(after.json.assigned_to).toBeNull();
+  });
+
+  it("clears a due date with an empty string", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Due date clear test",
+      due_date: "2026-12-31",
+    });
+    const ref = track(created.json.ref);
+
+    const withDate = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(withDate.json.due_date).toBe("2026-12-31");
+
+    const cleared = await call("taiga_userstory_update", { ref, due_date: "" });
+    expect(cleared.isError).toBe(false);
+
+    const after = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(after.json.due_date).toBeNull();
+  });
+
+  it("returns names, not bare ids, for an explicit fields list", async () => {
+    const { json, isError } = await call("taiga_issue_list", {
+      fields: ["ref", "priority", "status"],
+      limit: 1,
+    });
+    expect(isError).toBe(false);
+    const first = json.items[0];
+    expect(typeof first.priority).toBe("string");
+    expect(typeof first.status).toBe("string");
+    expect(typeof first.ref).toBe("number");
   });
 
   it("creates, reads by ref, updates and deletes a story", async () => {

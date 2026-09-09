@@ -57,6 +57,15 @@ async function locate(
   );
 }
 
+/**
+ * Fields Taiga stores as a nullable foreign key or date, where the caller
+ * needs a way to say "none" — unassign a person, drop a due date. The empty
+ * string is that way, following the convention `epic: ""` already set, and
+ * `sprint` gets the same treatment where it is turned into `milestone`.
+ * Text fields are deliberately absent: "" is already a meaningful value there.
+ */
+const CLEARABLE = new Set(["assigned_to", "due_date"]);
+
 /** Translate human-readable field values into the numeric ids Taiga expects. */
 async function resolveFields(
   ctx: ToolContext,
@@ -67,6 +76,10 @@ async function resolveFields(
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined) continue;
+    if (value === "" && CLEARABLE.has(key)) {
+      output[key] = null;
+      continue;
+    }
     const lookup = def.lookups.find((entry) => entry.field === key);
     if (lookup && (typeof value === "string" || typeof value === "number")) {
       output[key] = await ctx.cache.resolveLookup(projectId, lookup.kind, value);
@@ -77,7 +90,12 @@ async function resolveFields(
   return output;
 }
 
-async function resolveSprint(
+/**
+ * Resolve a sprint name to its milestone id.
+ * Exported so `taiga_bulk_create` can reuse it instead of passing the name
+ * straight through, which Taiga's serializer silently ignores.
+ */
+export async function resolveSprint(
   ctx: ToolContext,
   projectId: number,
   name: string,
@@ -182,16 +200,22 @@ async function applyEpicLink(
  * other computable role to "unestimated" on create and leaves it untouched
  * on update, so a single human value maps onto the per-role model without
  * the caller ever seeing roles.
+ *
+ * Exported so `taiga_bulk_create` can reuse it: a bare string here is the
+ * HTTP 500 described above.
  */
-async function resolvePoints(
+export async function resolvePoints(
   ctx: ToolContext,
   projectId: number,
   value: string | number,
 ): Promise<Record<string, number>> {
   const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
+  // page_size explicit: Taiga's default page (30) would silently hide a
+  // computable role on a project with more roles than that, and the "primary"
+  // role picked below would then be the wrong one.
   const roles = await ctx.client.list<{ id: number; order: number; computable: boolean }>(
     "/roles",
-    { project: projectId },
+    { project: projectId, page_size: 1000 },
   );
   const primary = roles.items
     .filter((role) => role.computable)
@@ -229,6 +253,16 @@ export function registerCrudTools(
     },
     guard(async (args) => {
       const { project: ref, fields, limit, page, ...filters } = args as Record<string, unknown>;
+
+      // Both of these write `params.milestone` below; whichever the loop
+      // reached last used to win, with the other silently discarded.
+      if (filters.sprint !== undefined && filters.in_backlog === true) {
+        throw new TaigaError(
+          "Pass either `sprint` or `in_backlog: true`, not both.",
+          { hint: "`in_backlog: true` means no sprint at all." },
+        );
+      }
+
       const projectId = await ctx.cache.resolveProject(ref as string | number | undefined);
 
       const params: Record<string, string | number | undefined> = {
@@ -301,7 +335,7 @@ export function registerCrudTools(
         payload.user_story = await ctx.cache.resolveRef(projectId, "us", payload.user_story as number);
       }
       if (typeof sprint === "string") {
-        payload.milestone = await resolveSprint(ctx, projectId, sprint);
+        payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
         payload.points = await resolvePoints(ctx, projectId, points as string | number);
@@ -362,8 +396,9 @@ export function registerCrudTools(
       if (typeof changes.user_story === "number") {
         changes.user_story = await ctx.cache.resolveRef(projectId, "us", changes.user_story as number);
       }
+      // "" moves the story back to the backlog, mirroring `epic: ""`.
       if (sprint !== undefined) {
-        changes.milestone = await resolveSprint(ctx, projectId, sprint);
+        changes.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
         changes.points = await resolvePoints(ctx, projectId, points);

@@ -176,16 +176,107 @@ describe("TaigaClient", () => {
     expect(fetchImpl.mock.calls[3][1].headers.Authorization).toBe("Bearer new");
   });
 
-  it("getBinary() on network error throws TaigaError with URL", async () => {
+  it("getBinary() on network error names TAIGA_URL without echoing the signed URL", async () => {
+    // The attachment URL carries a `?token=` that authorises the download with
+    // no login at all. Interpolating it into the error put that token into
+    // every transcript that captured the tool result — exactly what
+    // attachment.ts refuses to do when listing attachments.
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
       .mockRejectedValueOnce(new Error("Network unreachable"));
     const { client } = makeClient(fetchImpl);
 
-    await expect(
-      client.getBinary("http://taiga.test/attachments/file.pdf"),
-    ).rejects.toThrow(/Cannot reach Taiga at http:\/\/taiga\.test\/attachments\/file\.pdf/);
+    const signed = "http://taiga.test/media/attachments/secret.pdf?token=SUPERSECRET";
+    const error = (await client.getBinary(signed).catch((e) => e)) as Error;
+
+    expect(error.message).toMatch(/Cannot reach the Taiga file service/);
+    expect(error.message).toContain("TAIGA_URL");
+    expect(error.message).not.toContain("SUPERSECRET");
+    expect(error.message).not.toContain(signed);
+  });
+
+  it("getBinary() does not send the session token to a different media host", async () => {
+    // Taiga can be configured with an S3-style media backend, which would put
+    // the user's Taiga session token in a request to a third-party host. The
+    // signed URL authorises itself and does not need the header at all.
+    const fetchImpl = vi.fn(async () =>
+      new Response(Buffer.from("binary"), {
+        status: 200,
+        headers: { "content-type": "application/pdf" },
+      }),
+    );
+    const { client } = makeClient(fetchImpl);
+
+    await client.getBinary("https://media.cdn.example/taiga/file.pdf?token=signed");
+
+    // One call only: no login happened either, because no token was needed.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://media.cdn.example/taiga/file.pdf?token=signed");
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
+  it("still sends the bearer token for a same-origin media URL", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(
+        new Response(Buffer.from("binary"), {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+        }),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    await client.getBinary("http://taiga.test/media/attachments/file.pdf?token=signed");
+    expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("list() derives hasMore from x-pagination-next when no page_size was sent", async () => {
+    // Without an explicit page_size the arithmetic had no page size to work
+    // with and concluded "no more pages" every time, even on a 30-item first
+    // page of a 100-member project.
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(
+        json(
+          Array.from({ length: 30 }, (_, i) => ({ id: i })),
+          200,
+          {
+            "x-pagination-count": "100",
+            "x-pagination-current": "1",
+            "x-paginated": "true",
+            "x-paginated-by": "30",
+            "x-pagination-next": "http://taiga.test/api/v1/memberships?page=2",
+          },
+        ),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    const result = await client.list("/memberships", { project: 1 });
+    expect(result.hasMore).toBe(true);
+    expect(result.total).toBe(100);
+  });
+
+  it("list() on a paginated last page with no x-pagination-next → hasMore=false", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json({ auth_token: "tok", id: 1 }))
+      .mockResolvedValueOnce(
+        json([{ id: 1 }, { id: 2 }, { id: 3 }], 200, {
+          "x-pagination-count": "33",
+          "x-pagination-current": "2",
+          "x-paginated": "true",
+          "x-paginated-by": "30",
+          "x-pagination-prev": "http://taiga.test/api/v1/memberships?page=1",
+        }),
+      );
+    const { client } = makeClient(fetchImpl);
+
+    const result = await client.list("/memberships", { project: 1 });
+    expect(result.hasMore).toBe(false);
   });
 
   it("list() on short final page: total=5, page_size=3, page 2 with 2 items → hasMore=false", async () => {

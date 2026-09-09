@@ -1,3 +1,5 @@
+import { TaigaError } from "./errors.js";
+
 export type ResourceName =
   | "userstory"
   | "task"
@@ -140,11 +142,27 @@ export function project(
 ): Record<string, unknown> {
   if (fields === "full") return raw;
 
+  const shape = SLIM[resource];
+
   if (Array.isArray(fields)) {
-    return Object.fromEntries(fields.map((field) => [field, raw[field] ?? null]));
+    // Run each requested name through the same getter `slim` uses. Reading
+    // straight off the raw object meant `fields: ["status"]` returned a bare
+    // numeric id where `slim` returned "Closed" — the same field name in two
+    // different value spaces, handed to the caller most likely to be
+    // narrowing its projection to save context. A name that is neither a slim
+    // field nor present on the raw object is a typo, not a null.
+    return Object.fromEntries(
+      fields.map((field) => {
+        const get = shape[field];
+        if (get) return [field, get(raw, labels)];
+        if (field in raw) return [field, raw[field] ?? null];
+        throw new TaigaError(`"${field}" is not a field of a Taiga ${resource}.`, {
+          hint: `Known fields: ${Object.keys(shape).join(", ")}. Use fields: "full" to see everything.`,
+        });
+      }),
+    );
   }
 
-  const shape = SLIM[resource];
   return Object.fromEntries(
     Object.entries(shape).map(([name, get]) => [name, get(raw, labels)]),
   );

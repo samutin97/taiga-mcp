@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { SchemaCache } from "../src/schema-cache.js";
+import { TaigaError } from "../src/errors.js";
 
 function fakeClient(routes: Record<string, unknown>) {
   return {
@@ -25,19 +26,24 @@ function fakeClient(routes: Record<string, unknown>) {
   };
 }
 
+// The keys carry `page_size=1000` deliberately: every lookup fetch must ask
+// for a page big enough to hold a real project's tables, because Taiga
+// paginates these endpoints at 30 by default. A request without it does not
+// match any route here and fails as an unexpected GET.
 const lookupRoutes = {
-  "/userstory-statuses?project=1": [
+  "/userstory-statuses?project=1&page_size=1000": [
     { id: 11, name: "New" },
     { id: 12, name: "In progress" },
   ],
-  "/task-statuses?project=1": [{ id: 21, name: "New" }],
-  "/issue-statuses?project=1": [{ id: 31, name: "New" }],
-  "/priorities?project=1": [{ id: 41, name: "High" }],
-  "/severities?project=1": [{ id: 51, name: "Normal" }],
-  "/issue-types?project=1": [{ id: 61, name: "Bug" }],
-  "/points?project=1": [{ id: 71, name: "5" }],
-  "/roles?project=1": [{ id: 81, name: "Back" }],
-  "/memberships?project=1": [
+  "/task-statuses?project=1&page_size=1000": [{ id: 21, name: "New" }],
+  "/issue-statuses?project=1&page_size=1000": [{ id: 31, name: "New" }],
+  "/epic-statuses?project=1&page_size=1000": [{ id: 36, name: "New" }],
+  "/priorities?project=1&page_size=1000": [{ id: 41, name: "High" }],
+  "/severities?project=1&page_size=1000": [{ id: 51, name: "Normal" }],
+  "/issue-types?project=1&page_size=1000": [{ id: 61, name: "Bug" }],
+  "/points?project=1&page_size=1000": [{ id: 71, name: "5" }],
+  "/roles?project=1&page_size=1000": [{ id: 81, name: "Back" }],
+  "/memberships?project=1&page_size=1000": [
     { user: 91, full_name: "Ivan Petrov", email: "ivan@example.com" },
     { user: 92, full_name: "Anna Ivanova", email: "anna@example.com" },
   ],
@@ -84,7 +90,7 @@ describe("SchemaCache", () => {
   it("asks the user to disambiguate an ambiguous member name", async () => {
     const client = fakeClient({
       ...lookupRoutes,
-      "/memberships?project=1": [
+      "/memberships?project=1&page_size=1000": [
         { user: 91, full_name: "Ivan Petrov", email: "ivan@a.com" },
         { user: 93, full_name: "Ivan Petrov", email: "ivan@b.com" },
       ],
@@ -139,7 +145,7 @@ describe("SchemaCache", () => {
   it("rejects a pending invitee who has no user id yet", async () => {
     const client = fakeClient({
       ...lookupRoutes,
-      "/memberships?project=1": [
+      "/memberships?project=1&page_size=1000": [
         { user: 91, full_name: "Ivan Petrov", email: "ivan@example.com" },
         { user: null, full_name: "Pending Person", email: "pending@example.com" },
       ],
@@ -151,6 +157,40 @@ describe("SchemaCache", () => {
     );
     // But normal members still resolve
     await expect(cache.resolveLookup(1, "member", "Ivan Petrov")).resolves.toBe(91);
+  });
+
+  it("asks for a lookup page big enough for a real team, not Taiga's default 30", async () => {
+    // Taiga paginates /memberships at 30 (x-paginated-by: 30, verified live).
+    // Without an explicit page_size, everyone past the first page vanishes:
+    // `assigned_to: "<their name>"` would be rejected as not a valid member
+    // and taiga_project_schema would show a truncated roster. The sandbox has
+    // exactly one member, so only a mocked page this size can catch it.
+    const roster = Array.from({ length: 31 }, (_, index) => ({
+      user: 100 + index,
+      full_name: `Member ${index + 1}`,
+      email: `member${index + 1}@example.com`,
+    }));
+    const client = fakeClient({
+      ...lookupRoutes,
+      "/memberships?project=1&page_size=1000": roster,
+    });
+    const cache = new SchemaCache(client as never, {});
+    await expect(cache.resolveLookup(1, "member", "Member 31")).resolves.toBe(130);
+  });
+
+  it("names the ref and the project when /resolver 404s on a missing #ref", async () => {
+    // Taiga answers a resolver miss with HTTP 404 and an EMPTY
+    // `_error_message`, so the generic HTTP error carries no text at all.
+    const client = fakeClient(lookupRoutes);
+    client.get = vi.fn(async (path: string) => {
+      if (path === "/projects/1") return { id: 1, slug: "sandbox", name: "Sandbox" };
+      if (path === "/resolver") throw new TaigaError("Not found in Taiga.", { status: 404 });
+      throw new Error(`unexpected GET ${path}`);
+    }) as never;
+    const cache = new SchemaCache(client as never, {});
+    await expect(cache.resolveRef(1, "us", 99999)).rejects.toThrow(
+      /No item #99999 in project sandbox\./,
+    );
   });
 
   it("resolveRef reuses project slug from cache", async () => {

@@ -27,6 +27,19 @@ const tagsField = z
   .optional()
   .describe("Tag names.");
 
+/**
+ * Taiga stores these as a nullable foreign key / date, and the empty string is
+ * how a caller says "none" — the convention `epic: ""` already set. Shared so
+ * the wording, which every update tool pays for out of the schema budget, is
+ * written once.
+ */
+const assigneeUpdate = z
+  .string()
+  .optional()
+  .describe('Assignee full name; "" unassigns.');
+
+const dueDateUpdate = z.string().optional().describe('ISO date; "" clears it.');
+
 export const USER_STORY: ResourceDef = {
   name: "userstory",
   path: "/userstories",
@@ -70,8 +83,8 @@ export const USER_STORY: ResourceDef = {
     subject: z.string().optional(),
     description: z.string().optional(),
     status: z.string().optional(),
-    assigned_to: z.string().optional(),
-    sprint: z.string().optional(),
+    assigned_to: assigneeUpdate,
+    sprint: z.string().optional().describe('Sprint name; "" moves to backlog.'),
     points: z
       .string()
       .optional()
@@ -82,7 +95,7 @@ export const USER_STORY: ResourceDef = {
     epic: z.string().optional()
       .describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
-    due_date: z.string().optional(),
+    due_date: dueDateUpdate,
     is_blocked: z.boolean().optional(),
     blocked_note: z.string().optional(),
   },
@@ -121,9 +134,9 @@ export const TASK: ResourceDef = {
     description: z.string().optional(),
     user_story: z.number().optional().describe("Parent story #ref."),
     status: z.string().optional(),
-    assigned_to: z.string().optional(),
+    assigned_to: assigneeUpdate,
     tags: tagsField,
-    due_date: z.string().optional(),
+    due_date: dueDateUpdate,
     is_blocked: z.boolean().optional(),
     blocked_note: z.string().optional(),
   },
@@ -167,9 +180,9 @@ export const ISSUE: ResourceDef = {
     priority: z.string().optional(),
     severity: z.string().optional(),
     type: z.string().optional(),
-    assigned_to: z.string().optional(),
+    assigned_to: assigneeUpdate,
     tags: tagsField,
-    due_date: z.string().optional(),
+    due_date: dueDateUpdate,
   },
   lookups: [
     { field: "status", kind: "issue-status" },
@@ -211,7 +224,7 @@ export const EPIC: ResourceDef = {
     description: z.string().optional(),
     color: z.string().optional(),
     status: z.string().optional(),
-    assigned_to: z.string().optional(),
+    assigned_to: assigneeUpdate,
     tags: tagsField,
   },
   lookups: [
@@ -258,7 +271,7 @@ export const WIKI: ResourceDef = {
     content: z.string().optional().describe("Replacement Markdown content."),
   },
   lookups: [],
-  // Taiga returns created_by as a bare numeric id with no *_extra_info; without this map the tool shows a number to the model.
+  // Taiga returns last_modifier (the field the wiki projection reads) as a bare numeric id with no *_extra_info; without this map the tool shows a number to the model.
   labels: [{ map: "member", kind: "member" }],
   supportsAppend: false,
 };

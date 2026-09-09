@@ -13,6 +13,7 @@ export interface ListResult<T> {
 
 export class TaigaClient {
   private readonly base: string;
+  private readonly origin: string;
 
   constructor(
     config: TaigaConfig,
@@ -20,6 +21,16 @@ export class TaigaClient {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {
     this.base = `${config.url}/api/v1`;
+    this.origin = new URL(config.url).origin;
+  }
+
+  /** True when `url` points at the configured Taiga instance itself. */
+  private isOwnOrigin(url: string): boolean {
+    try {
+      return new URL(url).origin === this.origin;
+    } catch {
+      return false;
+    }
   }
 
   private buildUrl(path: string, params?: Params): string {
@@ -30,25 +41,42 @@ export class TaigaClient {
     return url.toString();
   }
 
-  /** Perform a request against an absolute URL, re-authenticating once on 401. */
-  private async sendWithRetry(url: string, init: RequestInit): Promise<Response> {
+  /**
+   * Perform a request against an absolute URL, re-authenticating once on 401.
+   *
+   * The session token goes out only to the configured Taiga origin. Taiga can
+   * be run with an S3-style media backend, in which case the URL it hands back
+   * for an attachment points at a third-party host — and that URL already
+   * authorises itself through its `?token=` query parameter, so the header is
+   * not merely unnecessary there, it would hand the user's Taiga session to
+   * someone else's server.
+   *
+   * `redactUrl` keeps that same signed URL out of the network-error message:
+   * a tool result carrying it would be a no-login-required download link
+   * sitting in the transcript.
+   */
+  private async sendWithRetry(
+    url: string,
+    init: RequestInit,
+    redactUrl = false,
+  ): Promise<Response> {
+    const ownOrigin = this.isOwnOrigin(url);
     const send = async (): Promise<Response> => {
-      const token = await this.auth.getToken();
-      const headers = {
-        ...(init.headers as Record<string, string> | undefined),
-        Authorization: `Bearer ${token}`,
-      };
+      const headers = { ...(init.headers as Record<string, string> | undefined) };
+      if (ownOrigin) headers.Authorization = `Bearer ${await this.auth.getToken()}`;
       try {
         return await this.fetchImpl(url, { ...init, headers });
       } catch {
-        throw new TaigaError(`Cannot reach Taiga at ${url}.`, {
-          hint: "Check TAIGA_URL and that the instance is running.",
-        });
+        throw new TaigaError(
+          redactUrl ? "Cannot reach the Taiga file service." : `Cannot reach Taiga at ${url}.`,
+          { hint: "Check TAIGA_URL and that the instance is running." },
+        );
       }
     };
 
     let response = await send();
-    if (response.status === 401) {
+    // Only worth retrying when we actually sent a token that could have expired.
+    if (ownOrigin && response.status === 401) {
       this.auth.invalidate();
       response = await send();
     }
@@ -90,6 +118,14 @@ export class TaigaClient {
     const items = await this.unwrap<T[]>(response);
     const total = Number(response.headers.get("x-pagination-count") ?? items.length);
     const page = Number(response.headers.get("x-pagination-current") ?? 1);
+    // Taiga states outright whether another page exists. Trust that whenever
+    // it says the response was paginated: the arithmetic below has no page
+    // size to work with when the caller omitted `page_size`, and then reads a
+    // short final page as "there is more".
+    if (response.headers.get("x-paginated") === "true") {
+      const next = response.headers.get("x-pagination-next");
+      return { items, total, page, hasMore: Boolean(next) };
+    }
     const pageSize = Number(params?.page_size ?? 0) || items.length;
     const consumed = (page - 1) * pageSize + items.length;
     return { items, total, page, hasMore: items.length > 0 && consumed < total };
@@ -152,7 +188,7 @@ export class TaigaClient {
   }
 
   async getBinary(url: string): Promise<{ data: Buffer; contentType: string }> {
-    const response = await this.sendWithRetry(url, { method: "GET" });
+    const response = await this.sendWithRetry(url, { method: "GET" }, true);
     if (!response.ok) {
       throw describeHttpError(response.status, await response.text());
     }

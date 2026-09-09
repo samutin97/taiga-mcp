@@ -106,14 +106,24 @@ export class SchemaCache {
   /** Turn `#42` into an internal object id via Taiga's resolver endpoint. */
   async resolveRef(projectId: number, resolverKey: string, ref: number): Promise<number> {
     const slug = await this.projectSlug(projectId);
-    const resolved = await this.client.get<Record<string, number>>("/resolver", {
-      project: slug,
-      [resolverKey]: ref,
-    });
-    const id = resolved[resolverKey];
-    if (typeof id !== "number") {
-      throw new TaigaError(`No item #${ref} in project ${slug}.`);
+    const missing = () =>
+      new TaigaError(`No item #${ref} in project ${slug}.`, { status: 404 });
+    let resolved: Record<string, number>;
+    try {
+      resolved = await this.client.get<Record<string, number>>("/resolver", {
+        project: slug,
+        [resolverKey]: ref,
+      });
+    } catch (error) {
+      // Verified live: a resolver miss is HTTP 404 with an EMPTY
+      // `_error_message`, so the generic HTTP error carries no usable text at
+      // all. Say what was looked for and where instead of letting a blank
+      // message through.
+      if (error instanceof TaigaError && error.status === 404) throw missing();
+      throw error;
     }
+    const id = resolved[resolverKey];
+    if (typeof id !== "number") throw missing();
     return id;
   }
 
@@ -122,9 +132,13 @@ export class SchemaCache {
     const hit = this.lookups.get(key);
     if (hit && Date.now() - hit.at < this.ttlMs) return hit.entries;
 
+    // page_size explicit: Taiga paginates these endpoints at 30 by default
+    // (x-paginated-by: 30, verified live). Statuses rarely reach that, but
+    // /memberships on any real team does — and a truncated roster makes
+    // `assigned_to: "<name>"` fail for everyone past the first page.
     const raw = await this.client.get<Record<string, unknown>[]>(
       LOOKUP_PATHS[kind],
-      { project: projectId },
+      { project: projectId, page_size: 1000 },
     );
     const entries: LookupEntry[] =
       kind === "member"

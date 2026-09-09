@@ -229,6 +229,76 @@ describe("bulk create", () => {
     }
   });
 
+  // The tool's own description promises parity with taiga_<resource>_create,
+  // and taiga-stories-from-spec tells the model that estimates are resolved
+  // automatically. Before this fix `points: "5"` was sent as a bare string
+  // (an opaque HTTP 500 from Taiga) and `sprint` was an unknown field on the
+  // serializer: silently dropped, with the story still reported in `created`.
+  describe("sprint and points parity with the single create tool", () => {
+    it("lands sprint and points on the created stories, read back from Taiga", async () => {
+      const sprints = await call("taiga_sprint_list");
+      const sprintName = sprints.json.items[0].name;
+
+      const { json } = await call("taiga_bulk_create", {
+        resource: "userstory",
+        items: [
+          { subject: "Bulk sprint+points A", sprint: sprintName, points: "5" },
+          { subject: "Bulk sprint+points B", sprint: sprintName, points: "8" },
+        ],
+      });
+      for (const item of json.created) track(item.ref as number);
+
+      expect(json.failed).toHaveLength(0);
+      expect(json.created).toHaveLength(2);
+
+      // Read each story back: the handler's own report is not evidence.
+      const first = await call("taiga_userstory_get", { ref: json.created[0].ref });
+      expect(first.json.sprint).toBe(sprintName);
+      expect(first.json.points).toBe(5);
+
+      const second = await call("taiga_userstory_get", { ref: json.created[1].ref });
+      expect(second.json.sprint).toBe(sprintName);
+      expect(second.json.points).toBe(8);
+    });
+
+    it("isolates a bad sprint name to its own item", async () => {
+      const sprints = await call("taiga_sprint_list");
+      const sprintName = sprints.json.items[0].name;
+
+      const { json } = await call("taiga_bulk_create", {
+        resource: "userstory",
+        items: [
+          { subject: "Bulk sprint bad", sprint: "No Such Sprint At All" },
+          { subject: "Bulk sprint good", sprint: sprintName },
+        ],
+      });
+      for (const item of json.created) track(item.ref as number);
+
+      expect(json.failed).toHaveLength(1);
+      expect(json.failed[0].item.subject).toBe("Bulk sprint bad");
+      expect(json.created).toHaveLength(1);
+
+      const good = await call("taiga_userstory_get", { ref: json.created[0].ref });
+      expect(good.json.sprint).toBe(sprintName);
+    });
+
+    it("rejects `points` on an issue item instead of dropping it silently", async () => {
+      const { json } = await call("taiga_bulk_create", {
+        resource: "issue",
+        items: [{ subject: "Bulk issue with points", points: "5" }],
+      });
+      try {
+        expect(json.created).toHaveLength(0);
+        expect(json.failed).toHaveLength(1);
+        expect(json.failed[0].error).toMatch(/points/i);
+      } finally {
+        for (const item of json.created) {
+          await call("taiga_issue_delete", { ref: item.ref, confirm: true });
+        }
+      }
+    });
+  });
+
   // Decision: taiga_bulk_create silently dropping `epic` (created
   // the story, said nothing, never linked it) was worse than an error, so
   // it now reuses the same link mechanism as taiga_userstory_create. Epic

@@ -21447,11 +21447,12 @@ function extractMessage(body) {
     const record2 = body;
     for (const key of ["_error_message", "detail", "non_field_errors"]) {
       const candidate = record2[key];
-      if (typeof candidate === "string") return candidate;
-      if (Array.isArray(candidate) && typeof candidate[0] === "string") return candidate[0];
+      if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+      if (Array.isArray(candidate) && typeof candidate[0] === "string" && candidate[0].trim())
+        return candidate[0];
     }
     const fieldErrors = Object.entries(record2).filter(([key]) => !key.startsWith("_")).map(
-      ([key, value]) => Array.isArray(value) ? `${key}: ${value.join(", ")}` : void 0
+      ([key, value]) => Array.isArray(value) && value.join(", ").trim() ? `${key}: ${value.join(", ")}` : void 0
     ).filter(Boolean);
     if (fieldErrors.length > 0) return fieldErrors.join("; ");
   }
@@ -21566,8 +21567,18 @@ var TaigaClient = class {
     this.auth = auth;
     this.fetchImpl = fetchImpl;
     this.base = `${config2.url}/api/v1`;
+    this.origin = new URL(config2.url).origin;
   }
   base;
+  origin;
+  /** True when `url` points at the configured Taiga instance itself. */
+  isOwnOrigin(url) {
+    try {
+      return new URL(url).origin === this.origin;
+    } catch {
+      return false;
+    }
+  }
   buildUrl(path, params) {
     const url = new URL(this.base + path);
     for (const [key, value] of Object.entries(params ?? {})) {
@@ -21575,24 +21586,36 @@ var TaigaClient = class {
     }
     return url.toString();
   }
-  /** Perform a request against an absolute URL, re-authenticating once on 401. */
-  async sendWithRetry(url, init) {
+  /**
+   * Perform a request against an absolute URL, re-authenticating once on 401.
+   *
+   * The session token goes out only to the configured Taiga origin. Taiga can
+   * be run with an S3-style media backend, in which case the URL it hands back
+   * for an attachment points at a third-party host — and that URL already
+   * authorises itself through its `?token=` query parameter, so the header is
+   * not merely unnecessary there, it would hand the user's Taiga session to
+   * someone else's server.
+   *
+   * `redactUrl` keeps that same signed URL out of the network-error message:
+   * a tool result carrying it would be a no-login-required download link
+   * sitting in the transcript.
+   */
+  async sendWithRetry(url, init, redactUrl = false) {
+    const ownOrigin = this.isOwnOrigin(url);
     const send = async () => {
-      const token = await this.auth.getToken();
-      const headers = {
-        ...init.headers,
-        Authorization: `Bearer ${token}`
-      };
+      const headers = { ...init.headers };
+      if (ownOrigin) headers.Authorization = `Bearer ${await this.auth.getToken()}`;
       try {
         return await this.fetchImpl(url, { ...init, headers });
       } catch {
-        throw new TaigaError(`Cannot reach Taiga at ${url}.`, {
-          hint: "Check TAIGA_URL and that the instance is running."
-        });
+        throw new TaigaError(
+          redactUrl ? "Cannot reach the Taiga file service." : `Cannot reach Taiga at ${url}.`,
+          { hint: "Check TAIGA_URL and that the instance is running." }
+        );
       }
     };
     let response = await send();
-    if (response.status === 401) {
+    if (ownOrigin && response.status === 401) {
       this.auth.invalidate();
       response = await send();
     }
@@ -21625,6 +21648,10 @@ var TaigaClient = class {
     const items = await this.unwrap(response);
     const total = Number(response.headers.get("x-pagination-count") ?? items.length);
     const page = Number(response.headers.get("x-pagination-current") ?? 1);
+    if (response.headers.get("x-paginated") === "true") {
+      const next = response.headers.get("x-pagination-next");
+      return { items, total, page, hasMore: Boolean(next) };
+    }
     const pageSize = Number(params?.page_size ?? 0) || items.length;
     const consumed = (page - 1) * pageSize + items.length;
     return { items, total, page, hasMore: items.length > 0 && consumed < total };
@@ -21674,7 +21701,7 @@ var TaigaClient = class {
     );
   }
   async getBinary(url) {
-    const response = await this.sendWithRetry(url, { method: "GET" });
+    const response = await this.sendWithRetry(url, { method: "GET" }, true);
     if (!response.ok) {
       throw describeHttpError(response.status, await response.text());
     }
@@ -21749,14 +21776,19 @@ var SchemaCache = class {
   /** Turn `#42` into an internal object id via Taiga's resolver endpoint. */
   async resolveRef(projectId, resolverKey, ref) {
     const slug = await this.projectSlug(projectId);
-    const resolved = await this.client.get("/resolver", {
-      project: slug,
-      [resolverKey]: ref
-    });
-    const id = resolved[resolverKey];
-    if (typeof id !== "number") {
-      throw new TaigaError(`No item #${ref} in project ${slug}.`);
+    const missing = () => new TaigaError(`No item #${ref} in project ${slug}.`, { status: 404 });
+    let resolved;
+    try {
+      resolved = await this.client.get("/resolver", {
+        project: slug,
+        [resolverKey]: ref
+      });
+    } catch (error2) {
+      if (error2 instanceof TaigaError && error2.status === 404) throw missing();
+      throw error2;
     }
+    const id = resolved[resolverKey];
+    if (typeof id !== "number") throw missing();
     return id;
   }
   async entries(projectId, kind) {
@@ -21765,7 +21797,7 @@ var SchemaCache = class {
     if (hit && Date.now() - hit.at < this.ttlMs) return hit.entries;
     const raw = await this.client.get(
       LOOKUP_PATHS[kind],
-      { project: projectId }
+      { project: projectId, page_size: 1e3 }
     );
     const entries = kind === "member" ? raw.filter((row) => typeof row.user === "number").map((row) => ({
       id: row.user,
@@ -21860,9 +21892,7 @@ function asFieldMode(value) {
 }
 function ok(payload) {
   return {
-    content: [
-      { type: "text", text: JSON.stringify(payload, null, 1) }
-    ]
+    content: [{ type: "text", text: JSON.stringify(payload) }]
   };
 }
 function guard(handler) {
@@ -21888,7 +21918,8 @@ function registerWhoamiTool(server, ctx) {
     guard(async () => {
       const me = await ctx.client.get("/users/me");
       const projects = await ctx.client.list("/projects", {
-        member: me.id
+        member: me.id,
+        page_size: 1e3
       });
       return ok({
         id: me.id,
@@ -21997,10 +22028,19 @@ var SLIM = {
 };
 function project(resource, raw, fields = "slim", labels = {}) {
   if (fields === "full") return raw;
-  if (Array.isArray(fields)) {
-    return Object.fromEntries(fields.map((field) => [field, raw[field] ?? null]));
-  }
   const shape = SLIM[resource];
+  if (Array.isArray(fields)) {
+    return Object.fromEntries(
+      fields.map((field) => {
+        const get = shape[field];
+        if (get) return [field, get(raw, labels)];
+        if (field in raw) return [field, raw[field] ?? null];
+        throw new TaigaError(`"${field}" is not a field of a Taiga ${resource}.`, {
+          hint: `Known fields: ${Object.keys(shape).join(", ")}. Use fields: "full" to see everything.`
+        });
+      })
+    );
+  }
   return Object.fromEntries(
     Object.entries(shape).map(([name, get]) => [name, get(raw, labels)])
   );
@@ -22019,7 +22059,8 @@ function registerProjectTools(server, ctx) {
     guard(async ({ fields }) => {
       const me = await ctx.client.get("/users/me");
       const result = await ctx.client.list("/projects", {
-        member: me.id
+        member: me.id,
+        page_size: 1e3
       });
       return ok({
         total: result.total,
@@ -22050,6 +22091,8 @@ function registerProjectTools(server, ctx) {
 
 // src/resources.ts
 var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
+var assigneeUpdate = external_exports.string().optional().describe('Assignee full name; "" unassigns.');
+var dueDateUpdate = external_exports.string().optional().describe('ISO date; "" clears it.');
 var USER_STORY = {
   name: "userstory",
   path: "/userstories",
@@ -22087,14 +22130,14 @@ var USER_STORY = {
     subject: external_exports.string().optional(),
     description: external_exports.string().optional(),
     status: external_exports.string().optional(),
-    assigned_to: external_exports.string().optional(),
-    sprint: external_exports.string().optional(),
+    assigned_to: assigneeUpdate,
+    sprint: external_exports.string().optional().describe('Sprint name; "" moves to backlog.'),
     points: external_exports.string().optional().describe(
       "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles keep their current estimate."
     ),
     epic: external_exports.string().optional().describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
-    due_date: external_exports.string().optional(),
+    due_date: dueDateUpdate,
     is_blocked: external_exports.boolean().optional(),
     blocked_note: external_exports.string().optional()
   },
@@ -22132,9 +22175,9 @@ var TASK = {
     description: external_exports.string().optional(),
     user_story: external_exports.number().optional().describe("Parent story #ref."),
     status: external_exports.string().optional(),
-    assigned_to: external_exports.string().optional(),
+    assigned_to: assigneeUpdate,
     tags: tagsField,
-    due_date: external_exports.string().optional(),
+    due_date: dueDateUpdate,
     is_blocked: external_exports.boolean().optional(),
     blocked_note: external_exports.string().optional()
   },
@@ -22177,9 +22220,9 @@ var ISSUE = {
     priority: external_exports.string().optional(),
     severity: external_exports.string().optional(),
     type: external_exports.string().optional(),
-    assigned_to: external_exports.string().optional(),
+    assigned_to: assigneeUpdate,
     tags: tagsField,
-    due_date: external_exports.string().optional()
+    due_date: dueDateUpdate
   },
   lookups: [
     { field: "status", kind: "issue-status" },
@@ -22220,7 +22263,7 @@ var EPIC = {
     description: external_exports.string().optional(),
     color: external_exports.string().optional(),
     status: external_exports.string().optional(),
-    assigned_to: external_exports.string().optional(),
+    assigned_to: assigneeUpdate,
     tags: tagsField
   },
   lookups: [
@@ -22265,7 +22308,7 @@ var WIKI = {
     content: external_exports.string().optional().describe("Replacement Markdown content.")
   },
   lookups: [],
-  // Taiga returns created_by as a bare numeric id with no *_extra_info; without this map the tool shows a number to the model.
+  // Taiga returns last_modifier (the field the wiki projection reads) as a bare numeric id with no *_extra_info; without this map the tool shows a number to the model.
   labels: [{ map: "member", kind: "member" }],
   supportsAppend: false
 };
@@ -22310,10 +22353,15 @@ async function locate(ctx, def, projectId, args) {
     { hint: def.hasRef ? "Pass `ref` (the #number) or `id`." : "Pass `slug` or `id`." }
   );
 }
+var CLEARABLE = /* @__PURE__ */ new Set(["assigned_to", "due_date"]);
 async function resolveFields(ctx, def, projectId, input) {
   const output = {};
   for (const [key, value] of Object.entries(input)) {
     if (value === void 0) continue;
+    if (value === "" && CLEARABLE.has(key)) {
+      output[key] = null;
+      continue;
+    }
     const lookup = def.lookups.find((entry) => entry.field === key);
     if (lookup && (typeof value === "string" || typeof value === "number")) {
       output[key] = await ctx.cache.resolveLookup(projectId, lookup.kind, value);
@@ -22373,7 +22421,7 @@ async function resolvePoints(ctx, projectId, value) {
   const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
   const roles = await ctx.client.list(
     "/roles",
-    { project: projectId }
+    { project: projectId, page_size: 1e3 }
   );
   const primary = roles.items.filter((role) => role.computable).sort((a, b) => a.order - b.order)[0];
   if (!primary) {
@@ -22399,6 +22447,12 @@ function registerCrudTools(server, ctx, def) {
     },
     guard(async (args) => {
       const { project: ref, fields, limit, page, ...filters } = args;
+      if (filters.sprint !== void 0 && filters.in_backlog === true) {
+        throw new TaigaError(
+          "Pass either `sprint` or `in_backlog: true`, not both.",
+          { hint: "`in_backlog: true` means no sprint at all." }
+        );
+      }
       const projectId = await ctx.cache.resolveProject(ref);
       const params = {
         project: projectId,
@@ -22458,7 +22512,7 @@ function registerCrudTools(server, ctx, def) {
         payload.user_story = await ctx.cache.resolveRef(projectId, "us", payload.user_story);
       }
       if (typeof sprint === "string") {
-        payload.milestone = await resolveSprint(ctx, projectId, sprint);
+        payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== void 0) {
         payload.points = await resolvePoints(ctx, projectId, points);
@@ -22510,7 +22564,7 @@ function registerCrudTools(server, ctx, def) {
         changes.user_story = await ctx.cache.resolveRef(projectId, "us", changes.user_story);
       }
       if (sprint !== void 0) {
-        changes.milestone = await resolveSprint(ctx, projectId, sprint);
+        changes.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== void 0) {
         changes.points = await resolvePoints(ctx, projectId, points);
@@ -22762,9 +22816,28 @@ function registerBulkTool(server, ctx) {
               `"epic" must be an epic subject given as a string, not ${typeof item.epic}.`
             );
           }
+          for (const field of ["sprint", "points"]) {
+            if (item[field] !== void 0 && def.createFields[field] === void 0) {
+              throw new TaigaError(
+                `"${field}" applies to user stories only, not to ${def.label} items.`
+              );
+            }
+          }
           const payload = { project: projectId };
           for (const [key, value] of Object.entries(item)) {
             if (value === void 0 || key === "epic") continue;
+            if (key === "sprint") {
+              payload.milestone = value === "" ? null : await resolveSprint(ctx, projectId, String(value));
+              continue;
+            }
+            if (key === "points") {
+              payload.points = await resolvePoints(
+                ctx,
+                projectId,
+                value
+              );
+              continue;
+            }
             const lookup = def.lookups.find((entry) => entry.field === key);
             payload[key] = lookup ? await ctx.cache.resolveLookup(
               projectId,
@@ -22929,7 +23002,7 @@ function registerAttachmentTools(server, ctx) {
       );
       const result = await ctx.client.list(
         ATTACHABLE[resource].path,
-        { project: projectId, object_id: objectId }
+        { project: projectId, object_id: objectId, page_size: 1e3 }
       );
       return ok({ total: result.total, items: result.items.map(slim) });
     })
@@ -22997,7 +23070,16 @@ function registerAttachmentTools(server, ctx) {
         );
       }
       const savedTo = join(a.target_dir, safeName);
-      await writeFile(savedTo, data);
+      try {
+        await writeFile(savedTo, data, { flag: "wx" });
+      } catch (error2) {
+        if (error2.code === "EEXIST") {
+          throw new TaigaError(`"${savedTo}" already exists; refusing to overwrite it.`, {
+            hint: "Download into an empty directory, or move the existing file away first."
+          });
+        }
+        throw error2;
+      }
       return ok({ saved_to: savedTo, size: data.byteLength });
     })
   );

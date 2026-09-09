@@ -83,9 +83,11 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
       const objectId = await locate(
         ctx, resource, projectId, a.id as number | undefined, a.ref as number | undefined,
       );
+      // page_size explicit: Taiga's default page (30) would silently hide
+      // attachments past the thirtieth on a busy item.
       const result = await ctx.client.list<Record<string, unknown>>(
         ATTACHABLE[resource].path,
-        { project: projectId, object_id: objectId },
+        { project: projectId, object_id: objectId, page_size: 1000 },
       );
       return ok({ total: result.total, items: result.items.map(slim) });
     }),
@@ -163,7 +165,20 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
         );
       }
       const savedTo = join(a.target_dir, safeName);
-      await writeFile(savedTo, data);
+      // The name comes from whoever attached the file, so an overwrite here is
+      // an overwrite of the caller's own file chosen by someone else: "save the
+      // attachments from #12 into my project root" plus an attachment called
+      // `.env`. Refuse instead, and let the caller decide.
+      try {
+        await writeFile(savedTo, data, { flag: "wx" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new TaigaError(`"${savedTo}" already exists; refusing to overwrite it.`, {
+            hint: "Download into an empty directory, or move the existing file away first.",
+          });
+        }
+        throw error;
+      }
       return ok({ saved_to: savedTo, size: data.byteLength });
     }),
   );

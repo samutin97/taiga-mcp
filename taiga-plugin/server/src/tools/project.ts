@@ -15,8 +15,11 @@ export function registerProjectTools(server: McpServer, ctx: ToolContext): void 
     { fields: FIELDS_SCHEMA },
     guard(async ({ fields }) => {
       const me = await ctx.client.get<{ id: number }>("/users/me");
+      // page_size explicit: Taiga's default page (30) would silently hide
+      // projects from someone who is a member of more than that.
       const result = await ctx.client.list<Record<string, unknown>>("/projects", {
         member: me.id,
+        page_size: 1000,
       });
       return ok({
         total: result.total,

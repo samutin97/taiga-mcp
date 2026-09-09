@@ -4,7 +4,7 @@ import { type ToolContext, ok, guard } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
-import { resolveEpic, linkStoryToEpic } from "./crud.js";
+import { resolveEpic, linkStoryToEpic, resolveSprint, resolvePoints } from "./crud.js";
 
 const MAX_ITEMS = 50;
 
@@ -118,9 +118,34 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
             );
           }
 
+          // `sprint` and `points` need the same resolution the single-create
+          // tool gives them, and only user stories offer them there. Sent raw,
+          // `points` is an opaque HTTP 500 from Taiga (it stores points as a
+          // per-role map) and `sprint` is an unknown field on the serializer:
+          // silently dropped, with the item still reported in `created` — the
+          // same silent-success failure the `epic` guards above exist to stop.
+          for (const field of ["sprint", "points"]) {
+            if (item[field] !== undefined && def.createFields[field] === undefined) {
+              throw new TaigaError(
+                `"${field}" applies to user stories only, not to ${def.label} items.`,
+              );
+            }
+          }
+
           const payload: Record<string, unknown> = { project: projectId };
           for (const [key, value] of Object.entries(item)) {
             if (value === undefined || key === "epic") continue;
+            if (key === "sprint") {
+              payload.milestone =
+                value === "" ? null : await resolveSprint(ctx, projectId, String(value));
+              continue;
+            }
+            if (key === "points") {
+              payload.points = await resolvePoints(
+                ctx, projectId, value as string | number,
+              );
+              continue;
+            }
             const lookup = def.lookups.find((entry) => entry.field === key);
             payload[key] = lookup
               ? await ctx.cache.resolveLookup(

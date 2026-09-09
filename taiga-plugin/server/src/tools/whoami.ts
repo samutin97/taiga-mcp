@@ -9,8 +9,11 @@ export function registerWhoamiTool(server: McpServer, ctx: ToolContext): void {
     {},
     guard(async () => {
       const me = await ctx.client.get<Record<string, unknown>>("/users/me");
+      // page_size explicit: Taiga's default page (30) would silently hide
+      // projects from someone who is a member of more than that.
       const projects = await ctx.client.list<Record<string, unknown>>("/projects", {
         member: me.id as number,
+        page_size: 1000,
       });
       return ok({
         id: me.id,

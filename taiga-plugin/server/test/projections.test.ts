@@ -58,6 +58,46 @@ describe("projections", () => {
     });
   });
 
+  // An explicit field list used to read straight off the raw Taiga object, so
+  // the same field name meant a name under `slim` and a bare numeric id here —
+  // the very ids this plugin exists to hide, handed to the caller most likely
+  // to be narrowing its projection to save context.
+  it("gives an explicit field list the same values slim would, not bare ids", () => {
+    const rawIssue = {
+      id: 1,
+      ref: 21,
+      subject: "Bug in login",
+      status_extra_info: { name: "Closed" },
+      priority: 41,
+      severity: 51,
+      type: 61,
+      tags: [["a", "#fff"]],
+    };
+    const labels = {
+      priority: new Map([[41, "Normal"]]),
+      severity: new Map([[51, "Important"]]),
+      type: new Map([[61, "Bug"]]),
+    };
+
+    const explicit = project("issue", rawIssue, ["ref", "priority", "status"], labels);
+    const slim = project("issue", rawIssue, "slim", labels);
+
+    expect(explicit).toEqual({ ref: 21, priority: "Normal", status: "Closed" });
+    expect(explicit.priority).toBe(slim.priority);
+    expect(explicit.status).toBe(slim.status);
+  });
+
+  it("falls back to the raw value for a field with no slim getter", () => {
+    expect(project("userstory", rawStory, ["description", "version"])).toEqual({
+      description: "long text",
+      version: 7,
+    });
+  });
+
+  it("names an unknown field instead of silently returning null", () => {
+    expect(() => project("userstory", rawStory, ["subjcet"])).toThrow(/subjcet/);
+  });
+
   it("tolerates missing optional fields", () => {
     const result = project("userstory", { ref: 9, subject: "x" });
     expect(result.status).toBeNull();

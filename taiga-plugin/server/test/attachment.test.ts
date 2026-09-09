@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -124,6 +131,83 @@ describe("taiga_attachment_download rejects a degenerate `..` file name", () => 
       expect(raw).toMatch(/unusable file name/);
       // target_dir itself must stay empty: nothing was written anywhere.
       expect(readdirSync(targetDir)).toEqual([]);
+    } finally {
+      rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("taiga_attachment_download refuses to overwrite an existing file", () => {
+  it("fails naming the existing path instead of clobbering it", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "taiga-attachment-unit-"));
+    try {
+      // The attachment NAME comes from whoever attached the file. "Download
+      // the attachments from #12 into my project root" plus an attachment
+      // called `.env` was a silent clobber of the caller's own file.
+      const victim = join(targetDir, ".env");
+      writeFileSync(victim, "SECRET=keepme");
+
+      const { server, handlerFor } = captureHandler();
+      const ctx = {
+        cache: {},
+        client: {
+          get: vi.fn(async () => ({
+            id: 9,
+            name: ".env",
+            url: "http://example.test/attachments/dotenv",
+          })),
+          getBinary: vi.fn(async () => ({
+            data: Buffer.from("OVERWRITTEN=yes"),
+            contentType: "text/plain",
+          })),
+        },
+      } as unknown as ToolContext;
+
+      registerAttachmentTools(server, ctx);
+      const { result, raw } = await callHandler(handlerFor("taiga_attachment_download"), {
+        attachment_id: 9,
+        resource: "userstory",
+        target_dir: targetDir,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(raw).toContain(victim);
+      expect(raw).toMatch(/already exists/i);
+      // The original content must still be there, untouched.
+      expect(readFileSync(victim, "utf8")).toBe("SECRET=keepme");
+    } finally {
+      rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still writes when nothing is in the way", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "taiga-attachment-unit-"));
+    try {
+      const { server, handlerFor } = captureHandler();
+      const ctx = {
+        cache: {},
+        client: {
+          get: vi.fn(async () => ({
+            id: 9,
+            name: "report.txt",
+            url: "http://example.test/attachments/report.txt",
+          })),
+          getBinary: vi.fn(async () => ({
+            data: Buffer.from("payload"),
+            contentType: "text/plain",
+          })),
+        },
+      } as unknown as ToolContext;
+
+      registerAttachmentTools(server, ctx);
+      const { json } = await callHandler(handlerFor("taiga_attachment_download"), {
+        attachment_id: 9,
+        resource: "userstory",
+        target_dir: targetDir,
+      });
+
+      expect(json.saved_to).toBe(join(targetDir, "report.txt"));
+      expect(readFileSync(json.saved_to, "utf8")).toBe("payload");
     } finally {
       rmSync(targetDir, { recursive: true, force: true });
     }

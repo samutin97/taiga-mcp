@@ -30,6 +30,22 @@ describe("extractMessage", () => {
     expect(extractMessage({})).toBeUndefined();
   });
 
+  it("treats a blank _error_message as no message at all", () => {
+    // Taiga's /resolver answers a miss with exactly `{"_error_message": ""}`
+    // and HTTP 404. Accepting "" here made every "no such #ref" error come
+    // back as an empty string: `"" ?? fallback` is "", so describeHttpError's
+    // default could not rescue it either.
+    expect(extractMessage({ _error_message: "" })).toBeUndefined();
+    expect(extractMessage({ _error_message: "   " })).toBeUndefined();
+    expect(extractMessage({ detail: [""] })).toBeUndefined();
+  });
+
+  it("falls through a blank _error_message to a usable detail", () => {
+    expect(extractMessage({ _error_message: "", detail: "Real message" })).toBe(
+      "Real message",
+    );
+  });
+
   it("does not throw on malformed input", () => {
     expect(() => extractMessage({ non_field_errors: 123 })).not.toThrow();
     expect(() => extractMessage({ _error_message: null })).not.toThrow();
@@ -47,6 +63,12 @@ describe("describeHttpError", () => {
   it("404 surfaces extracted detail message", () => {
     const error = describeHttpError(404, { detail: "Not found." });
     expect(error.message).toContain("Not found.");
+  });
+
+  it("404 with a blank _error_message still produces a non-empty message", () => {
+    const error = describeHttpError(404, { _error_message: "" });
+    expect(error.message.trim()).not.toBe("");
+    expect(error.message).toContain("Not found in Taiga.");
   });
 
   it("503 mentions the status code and does not mention TAIGA_PASSWORD value", () => {
