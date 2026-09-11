@@ -78,12 +78,12 @@ function checkOversized(story, maxPoints) {
 }
 
 function checkWaitingTag(story) {
+  if (story.blocked_note) return null;
   const tags = Array.isArray(story.tags) ? story.tags : [];
   for (const tag of tags) {
     if (typeof tag !== "string") continue;
     if (!WAITING_TAG_RE.test(tag)) continue;
     if (TAG_DATE_RE.test(tag)) continue;
-    if (story.blocked_note) continue;
     return "тег ожидания без даты и причины";
   }
   return null;
@@ -152,7 +152,7 @@ export function audit(input) {
     for (const story of stories) {
       const createdAge = daysBetween(story.created_date, now);
       if (!Number.isNaN(createdAge) && createdAge >= 0 && createdAge <= options.window_days) created += 1;
-      if (story.finish_date) {
+      if (story.is_closed === true && story.finish_date) {
         const closedAge = daysBetween(story.finish_date, now);
         if (!Number.isNaN(closedAge) && closedAge >= 0 && closedAge <= options.window_days) closed += 1;
       }

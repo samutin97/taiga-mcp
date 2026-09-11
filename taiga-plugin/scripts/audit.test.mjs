@@ -44,6 +44,13 @@ test("backlog-bankruptcy", () => {
   assert.deepEqual(rules({ ...base, stories: [fresh(1), fresh(2)] }), ["backlog-bankruptcy"]);
   assert.deepEqual(rules({ ...base, stories: [fresh(1), story({ ref: 2, created_date: "2026-07-01", is_closed: true, finish_date: "2026-09-02" })] }), []);
 });
+test("backlog-bankruptcy: a reopened story does not count as closed", () => {
+  const fresh = (ref) => story({ ref, created_date: "2026-09-01" });
+  const reopened = story({ ref: 2, created_date: "2026-07-01", is_closed: false, finish_date: "2026-09-02" });
+  assert.deepEqual(rules({ ...base, stories: [fresh(1), reopened] }), ["backlog-bankruptcy"]);
+  const actuallyClosed = story({ ref: 2, created_date: "2026-07-01", is_closed: true, finish_date: "2026-09-02" });
+  assert.deepEqual(rules({ ...base, stories: [fresh(1), actuallyClosed] }), []);
+});
 test("unowned-in-progress", () => {
   const task = (o) => ({ ref: 9, subject: "t", status: "In progress", is_closed: false, assigned_to: null, ...o });
   assert.deepEqual(rules({ ...base, tasks: [task({})] }), ["unowned-in-progress"]);
