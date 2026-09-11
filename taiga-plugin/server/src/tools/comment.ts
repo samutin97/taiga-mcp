@@ -52,8 +52,11 @@ export function registerCommentTools(server: McpServer, ctx: ToolContext): void 
         ctx, resource, projectId, a.id as number | undefined, a.ref as number | undefined,
       );
 
+      // page_size explicit: /history is paginated by 30 like every other
+      // Taiga listing, so a long thread silently lost its tail (R49).
       const history = await ctx.client.get<Record<string, unknown>[]>(
         `/history/${COMMENTABLE[resource].history}/${id}`,
+        { page_size: 1000 },
       );
       const items = history
         .filter(

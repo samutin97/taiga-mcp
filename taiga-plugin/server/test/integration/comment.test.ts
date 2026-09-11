@@ -90,4 +90,15 @@ describe("comments", () => {
     expect(listed.json.items[0].comment).toBe("First comment");
     expect(listed.json.items[1].comment).toBe("Second comment");
   });
+
+  it("returns every comment past Taiga's default page of 30", async () => {
+    const created = await call("taiga_userstory_create", { subject: "Long thread story" });
+    const ref = track(created.json.ref);
+    for (let i = 1; i <= 31; i++) {
+      await call("taiga_comment_add", { resource: "userstory", ref, comment: `Comment ${i}` });
+    }
+    const listed = await call("taiga_comment_list", { resource: "userstory", ref });
+    expect(listed.json.total).toBe(31);
+    expect(listed.json.items[30].comment).toBe("Comment 31");
+  }, 120_000);
 });

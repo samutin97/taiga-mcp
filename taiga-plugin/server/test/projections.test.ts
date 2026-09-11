@@ -98,6 +98,29 @@ describe("projections", () => {
     expect(() => project("userstory", rawStory, ["subjcet"])).toThrow(/subjcet/);
   });
 
+  describe("explicit field lists and prototype keys", () => {
+    it("rejects prototype keys as unknown fields, not as data", () => {
+      for (const key of ["constructor", "hasOwnProperty", "__proto__"]) {
+        expect(() => project("userstory", realStory, [key])).toThrow(/not a field of a Taiga userstory/);
+      }
+    });
+
+    it("explains when a real field is missing from this endpoint's response", () => {
+      const listRow = { ...realStory };
+      delete (listRow as Record<string, unknown>).description;
+      expect(() => project("userstory", listRow, ["description"])).toThrow(
+        /"description" exists on a Taiga userstory but this endpoint does not return it/,
+      );
+      expect(() => project("userstory", listRow, ["description"])).toThrow(/taiga_userstory_get/);
+    });
+
+    it("still returns a detail-only field when the response carries it", () => {
+      expect(project("userstory", realStory, ["description"])).toEqual({
+        description: realStory.description,
+      });
+    });
+  });
+
   it("tolerates missing optional fields", () => {
     const result = project("userstory", { ref: 9, subject: "x" });
     expect(result.status).toBeNull();

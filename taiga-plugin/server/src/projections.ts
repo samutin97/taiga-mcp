@@ -134,6 +134,19 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
   },
 };
 
+/**
+ * Fields present on Taiga's detail endpoints but omitted by its list
+ * serializers. Verified live on /userstories vs /userstories/{id}.
+ */
+const DETAIL_ONLY = new Set([
+  "description",
+  "description_html",
+  "blocked_note_html",
+  "neighbors",
+  "comment",
+  "generated_user_stories",
+]);
+
 export function project(
   resource: ResourceName,
   raw: Record<string, unknown>,
@@ -145,17 +158,22 @@ export function project(
   const shape = SLIM[resource];
 
   if (Array.isArray(fields)) {
-    // Run each requested name through the same getter `slim` uses. Reading
-    // straight off the raw object meant `fields: ["status"]` returned a bare
-    // numeric id where `slim` returned "Closed" — the same field name in two
-    // different value spaces, handed to the caller most likely to be
-    // narrowing its projection to save context. A name that is neither a slim
-    // field nor present on the raw object is a typo, not a null.
+    // Run each requested name through the same getter `slim` uses, so a
+    // narrowed projection never returns a bare id where `slim` returns a name.
+    // Own-property checks only: `shape[field]` and `field in raw` walked the
+    // prototype chain, so `fields: ["constructor"]` returned the whole raw
+    // object and `["hasOwnProperty"]` crashed with a TypeError (R47).
     return Object.fromEntries(
       fields.map((field) => {
-        const get = shape[field];
-        if (get) return [field, get(raw, labels)];
-        if (field in raw) return [field, raw[field] ?? null];
+        if (Object.hasOwn(shape, field)) return [field, shape[field](raw, labels)];
+        if (Object.hasOwn(raw, field)) return [field, raw[field] ?? null];
+        // Taiga's list serializers omit these; the detail endpoint has them (R48).
+        if (DETAIL_ONLY.has(field)) {
+          throw new TaigaError(
+            `"${field}" exists on a Taiga ${resource} but this endpoint does not return it.`,
+            { hint: `Read the item with taiga_${resource}_get to get "${field}".` },
+          );
+        }
         throw new TaigaError(`"${field}" is not a field of a Taiga ${resource}.`, {
           hint: `Known fields: ${Object.keys(shape).join(", ")}. Use fields: "full" to see everything.`,
         });
