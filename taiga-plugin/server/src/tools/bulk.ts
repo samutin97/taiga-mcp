@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard } from "../context.js";
+import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
@@ -38,8 +38,7 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
       "Each item is created independently: a failure in one does not stop the rest. " +
       "Show the user the plan before calling this.",
     {
-      project: z.union([z.string(), z.number()]).optional()
-        .describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+      project: PROJECT_SCHEMA,
       resource: z.enum(["userstory", "task", "issue"]),
       items: z
         .array(z.record(z.unknown()))

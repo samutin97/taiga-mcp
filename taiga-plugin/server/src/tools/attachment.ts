@@ -2,7 +2,7 @@ import { z } from "zod";
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard } from "../context.js";
+import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 
 // Taiga's gateway (nginx) caps request bodies at 100M on the local stand;
@@ -38,8 +38,7 @@ type Attachable = keyof typeof ATTACHABLE;
 // Shared by all three tools below; written once and reused to stay inside
 // the schema character budget.
 const common = {
-  project: z.union([z.string(), z.number()]).optional()
-    .describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+  project: PROJECT_SCHEMA,
   resource: z.enum(["userstory", "task", "issue", "epic"])
     .describe("Which kind of item the attachment belongs to."),
   id: z.number().optional().describe("Internal item id."),

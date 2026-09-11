@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard } from "../context.js";
+import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 
 /** Resources that carry a comment thread, mapped to their /history/ segment. */
@@ -33,8 +33,7 @@ async function locateItem(
 
 export function registerCommentTools(server: McpServer, ctx: ToolContext): void {
   const common = {
-    project: z.union([z.string(), z.number()]).optional()
-      .describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+    project: PROJECT_SCHEMA,
     resource: resourceArg,
     id: z.number().optional().describe("Internal item id."),
     ref: z.number().optional().describe("The #number shown in Taiga."),

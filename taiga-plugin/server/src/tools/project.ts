@@ -1,17 +1,12 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard, FIELDS_SCHEMA, asFieldMode } from "../context.js";
+import { type ToolContext, ok, guard, FIELDS_SCHEMA, PROJECT_SCHEMA, asFieldMode } from "../context.js";
 import { project, projectMany } from "../projections.js";
-
-const projectRef = z
-  .union([z.string(), z.number()])
-  .optional()
-  .describe("Project id or slug; defaults to TAIGA_PROJECT.");
 
 export function registerProjectTools(server: McpServer, ctx: ToolContext): void {
   server.tool(
     "taiga_project_list",
-    "List the Taiga projects the current user is a member of.",
+    "List the Taiga projects the current user is a member of. " +
+      "If TAIGA_PROJECT is set, every other tool defaults to it.",
     { fields: FIELDS_SCHEMA },
     guard(async ({ fields }) => {
       const me = await ctx.client.get<{ id: number }>("/users/me");
@@ -31,7 +26,7 @@ export function registerProjectTools(server: McpServer, ctx: ToolContext): void 
   server.tool(
     "taiga_project_get",
     "Get one Taiga project by id or slug.",
-    { project: projectRef, fields: FIELDS_SCHEMA },
+    { project: PROJECT_SCHEMA, fields: FIELDS_SCHEMA },
     guard(async ({ project: ref, fields }) => {
       const id = await ctx.cache.resolveProject(ref);
       const raw = await ctx.client.get<Record<string, unknown>>(`/projects/${id}`);
@@ -45,7 +40,7 @@ export function registerProjectTools(server: McpServer, ctx: ToolContext): void 
       "and members of a project. Use it to show the user what values are allowed; " +
       "you do not need it before writing, because status and person names are " +
       "resolved automatically.",
-    { project: projectRef },
+    { project: PROJECT_SCHEMA },
     guard(async ({ project: ref }) => {
       const id = await ctx.cache.resolveProject(ref);
       return ok(await ctx.cache.schema(id));

@@ -1,16 +1,16 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard } from "../context.js";
+import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { projectMany, type LabelMaps, type ResourceName } from "../projections.js";
 
 export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
   server.tool(
     "taiga_search",
     "Full-text search across a project's user stories, tasks, issues, epics and " +
-      "wiki pages. Use it when you know roughly what an item is called but not its #ref.",
+      "wiki pages. Use it when you know roughly what an item is called but not its #ref. " +
+      "For a full listing use taiga_<resource>_list.",
     {
-      project: z.union([z.string(), z.number()]).optional()
-        .describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+      project: PROJECT_SCHEMA,
       text: z.string().min(1).describe("Search query."),
     },
     guard(async (args) => {

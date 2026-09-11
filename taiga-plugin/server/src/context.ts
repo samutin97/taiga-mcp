@@ -61,6 +61,16 @@ export const FIELDS_SCHEMA = z
   .optional()
   .describe("Detail level: 'slim' (default), 'full', or a list of field names.");
 
+/**
+ * The `project` parameter every tool takes. Worded once: the default
+ * (TAIGA_PROJECT) is explained in taiga_project_list's description, not
+ * repeated 35 times out of the schema budget.
+ */
+export const PROJECT_SCHEMA = z
+  .union([z.string(), z.number()])
+  .optional()
+  .describe("Project id or slug.");
+
 export function asFieldMode(value: unknown): FieldMode {
   if (value === "full") return "full";
   if (Array.isArray(value)) return value as string[];

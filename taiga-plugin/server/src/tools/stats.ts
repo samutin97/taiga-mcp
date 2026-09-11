@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard } from "../context.js";
+import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 
 interface MilestoneStats {
@@ -20,8 +20,7 @@ export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
     "Progress statistics. With `sprint` it returns that sprint's points, completed " +
       "work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
     {
-      project: z.union([z.string(), z.number()]).optional()
-        .describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+      project: PROJECT_SCHEMA,
       sprint: z.string().optional()
         .describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats."),
     },

@@ -1,14 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { type ToolContext, ok, guard, FIELDS_SCHEMA, asFieldMode } from "../context.js";
+import { type ToolContext, ok, guard, FIELDS_SCHEMA, PROJECT_SCHEMA, asFieldMode } from "../context.js";
 import { project, projectMany, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
-
-const projectRef = z
-  .union([z.string(), z.number()])
-  .optional()
-  .describe("Project id or slug; defaults to TAIGA_PROJECT.");
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -243,9 +238,10 @@ export function registerCrudTools(
 
   server.tool(
     `taiga_${def.name}_list`,
-    `List ${def.label} items in a Taiga project. Returns a slim projection by default.`,
+    `List ${def.label} items in a Taiga project. Returns a slim projection by default. ` +
+      `For name lookup use taiga_search.`,
     {
-      project: projectRef,
+      project: PROJECT_SCHEMA,
       ...def.listFilters,
       limit: z.number().max(200).optional().describe("Max items to return. Default 50."),
       page: z.number().optional().describe("1-based page number."),
@@ -310,7 +306,7 @@ export function registerCrudTools(
   server.tool(
     `taiga_${def.name}_get`,
     `Get one ${def.label} by its #ref number or internal id.`,
-    { project: projectRef, ...idArgs, fields: FIELDS_SCHEMA },
+    { project: PROJECT_SCHEMA, ...idArgs, fields: FIELDS_SCHEMA },
     guard(async (args) => {
       const a = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(a.project as string | undefined);
@@ -324,7 +320,7 @@ export function registerCrudTools(
   server.tool(
     `taiga_${def.name}_create`,
     `Create a ${def.label}. Status and assignee are given by name, not by id.`,
-    { project: projectRef, ...def.createFields },
+    { project: PROJECT_SCHEMA, ...def.createFields },
     guard(async (args) => {
       const { project: ref, sprint, points, epic, ...rest } = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(ref as string | undefined);
@@ -359,7 +355,7 @@ export function registerCrudTools(
         ? ` Use append_description and add_tags to add without overwriting.`
         : ""),
     {
-      project: projectRef,
+      project: PROJECT_SCHEMA,
       ...idArgs,
       ...def.updateFields,
       ...(def.supportsAppend
@@ -457,7 +453,7 @@ export function registerCrudTools(
     `Permanently delete a ${def.label}. Requires confirm: true. ` +
       `Ask the user before calling this.`,
     {
-      project: projectRef,
+      project: PROJECT_SCHEMA,
       ...idArgs,
       confirm: z
         .boolean()
