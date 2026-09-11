@@ -1,0 +1,16 @@
+{
+  "name": "taiga-local",
+  "owner": { "name": "Dmitry Samutin" },
+  "metadata": { "description": "Локальный маркетплейс с плагином Taiga", "version": "1.0.0" },
+  "plugins": [
+    {
+      "name": "taiga",
+      "source": "./taiga-plugin",
+      "description": "Taiga из Claude Code: спринты, бэклог, issue, отчёты — от вашего имени",
+      "version": "0.2.0",
+      "author": { "name": "Dmitry Samutin" },
+      "keywords": ["taiga", "project-management", "agile", "scrum"],
+      "category": "productivity"
+    }
+  ]
+}

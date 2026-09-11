@@ -12,7 +12,7 @@ import { registerStatsTool } from "./tools/stats.js";
 import { registerAttachmentTools } from "./tools/attachment.js";
 
 export function createServer(ctx: ToolContext = createContext()): McpServer {
-  const server = new McpServer({ name: "taiga", version: "0.1.0" });
+  const server = new McpServer({ name: "taiga", version: "0.2.0" });
   registerWhoamiTool(server, ctx);
   registerProjectTools(server, ctx);
   for (const def of RESOURCES) registerCrudTools(server, ctx, def);
