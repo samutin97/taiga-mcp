@@ -136,16 +136,16 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
 
 /**
  * Fields present on Taiga's detail endpoints but omitted by its list
- * serializers. Verified live on /userstories vs /userstories/{id}.
+ * serializers. Verified live on /userstories vs /userstories/{id},
+ * /tasks vs /tasks/{id}, /issues vs /issues/{id}, and /epics vs /epics/{id}.
+ * `generated_user_stories` is detail-only for issues only; it is not a task field.
  */
-const DETAIL_ONLY = new Set([
-  "description",
-  "description_html",
-  "blocked_note_html",
-  "neighbors",
-  "comment",
-  "generated_user_stories",
-]);
+const DETAIL_ONLY: Partial<Record<ResourceName, Set<string>>> = {
+  userstory: new Set(["description", "description_html", "blocked_note_html", "neighbors"]),
+  task: new Set(["description", "description_html", "blocked_note_html", "neighbors"]),
+  issue: new Set(["description", "description_html", "blocked_note_html", "neighbors", "generated_user_stories"]),
+  epic: new Set(["description", "description_html"]),
+};
 
 export function project(
   resource: ResourceName,
@@ -168,7 +168,7 @@ export function project(
         if (Object.hasOwn(shape, field)) return [field, shape[field](raw, labels)];
         if (Object.hasOwn(raw, field)) return [field, raw[field] ?? null];
         // Taiga's list serializers omit these; the detail endpoint has them (R48).
-        if (DETAIL_ONLY.has(field)) {
+        if (DETAIL_ONLY[resource]?.has(field)) {
           throw new TaigaError(
             `"${field}" exists on a Taiga ${resource} but this endpoint does not return it.`,
             { hint: `Read the item with taiga_${resource}_get to get "${field}".` },

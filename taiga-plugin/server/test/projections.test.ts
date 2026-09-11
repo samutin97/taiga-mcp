@@ -101,12 +101,12 @@ describe("projections", () => {
   describe("explicit field lists and prototype keys", () => {
     it("rejects prototype keys as unknown fields, not as data", () => {
       for (const key of ["constructor", "hasOwnProperty", "__proto__"]) {
-        expect(() => project("userstory", realStory, [key])).toThrow(/not a field of a Taiga userstory/);
+        expect(() => project("userstory", rawStory, [key])).toThrow(/not a field of a Taiga userstory/);
       }
     });
 
     it("explains when a real field is missing from this endpoint's response", () => {
-      const listRow = { ...realStory };
+      const listRow = { ...rawStory };
       delete (listRow as Record<string, unknown>).description;
       expect(() => project("userstory", listRow, ["description"])).toThrow(
         /"description" exists on a Taiga userstory but this endpoint does not return it/,
@@ -115,9 +115,24 @@ describe("projections", () => {
     });
 
     it("still returns a detail-only field when the response carries it", () => {
-      expect(project("userstory", realStory, ["description"])).toEqual({
-        description: realStory.description,
+      expect(project("userstory", rawStory, ["description"])).toEqual({
+        description: rawStory.description,
       });
+    });
+
+    it("distinguishes detail-only fields per resource: task without generated_user_stories", () => {
+      const rawTask = { ref: 1, subject: "Task", id: 1 };
+      expect(() => project("task", rawTask, ["generated_user_stories"])).toThrow(
+        /not a field of a Taiga task/,
+      );
+    });
+
+    it("distinguishes detail-only fields per resource: issue with generated_user_stories as detail-only", () => {
+      const rawIssue = { ref: 21, subject: "Issue", id: 1 };
+      expect(() => project("issue", rawIssue, ["generated_user_stories"])).toThrow(
+        /"generated_user_stories" exists on a Taiga issue but this endpoint does not return it/,
+      );
+      expect(() => project("issue", rawIssue, ["generated_user_stories"])).toThrow(/taiga_issue_get/);
     });
   });
 
