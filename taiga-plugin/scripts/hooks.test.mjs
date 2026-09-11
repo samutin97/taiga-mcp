@@ -44,3 +44,29 @@ test("secret-scan: signed url, bearer and jwt are flagged", () => {
     assert.doesNotMatch(r.stdout, /abcdefghij12345|abcdefghijklmnopqrstuvwxyz|aaaaaaaaaa/, "the secret itself must not be echoed");
   }
 });
+
+test("upload-boundary: cross-drive path on Windows asks", { skip: process.platform !== "win32" }, () => {
+  const r = run("upload-boundary.mjs", { tool_name: "x", cwd: "C:\\proj", tool_input: { file_path: "D:\\secret.txt" } });
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.hookSpecificOutput.permissionDecision, "ask");
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /secret\.txt/);
+});
+
+test("upload-boundary: missing cwd uses process.cwd and exits silently inside", () => {
+  const r = run("upload-boundary.mjs", { tool_name: "x", tool_input: { file_path: "a.txt" } });
+  assert.equal(r.status, 0); assert.equal(r.stdout, "");
+});
+
+test("upload-boundary: missing cwd with ../ escape asks", () => {
+  const r = run("upload-boundary.mjs", { tool_name: "x", tool_input: { file_path: "../../outside.txt" } });
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.hookSpecificOutput.permissionDecision, "ask");
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /outside\.txt/);
+});
+
+test("upload-boundary: ../ escape with cwd present asks", () => {
+  const r = run("upload-boundary.mjs", { tool_name: "x", cwd: here, tool_input: { file_path: "../../escape.txt" } });
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.hookSpecificOutput.permissionDecision, "ask");
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, /escape\.txt/);
+});
