@@ -13,11 +13,31 @@ type Key = "URL" | "USERNAME" | "PASSWORD" | "PROJECT";
 const KEYS: Key[] = ["URL", "USERNAME", "PASSWORD", "PROJECT"];
 const FILE_KEYS: Record<Key, string> = { URL: "url", USERNAME: "username", PASSWORD: "password", PROJECT: "project" };
 
-/** A value the host failed to substitute (e.g. "${user_config.taiga_project}") is no value. */
+/** An unsubstituted host placeholder (e.g. "${user_config.taiga_project}") is no value. */
+function isPlaceholder(trimmed: string): boolean {
+  return /^\$\{.*\}$/.test(trimmed);
+}
+
+/**
+ * A value the host failed to substitute is no value. Trims the input before
+ * comparing *and* returns the trimmed value — fine for non-secret settings
+ * (url, username, project), where surrounding whitespace is never meaningful.
+ */
 function clean(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
-  return /^\$\{.*\}$/.test(trimmed) ? "" : trimmed;
+  return isPlaceholder(trimmed) ? "" : trimmed;
+}
+
+/**
+ * Same placeholder check as clean(), but for a secret: a password is opaque,
+ * so it is never trimmed — only a trimmed *copy* is used to detect an
+ * unsubstituted "${...}" placeholder. The value returned (when not a
+ * placeholder) is the raw, untrimmed string.
+ */
+function cleanSecret(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return isPlaceholder(value.trim()) ? "" : value;
 }
 
 function fromFile(env: NodeJS.ProcessEnv): Record<string, unknown> {
@@ -25,7 +45,9 @@ function fromFile(env: NodeJS.ProcessEnv): Record<string, unknown> {
   if (!dir) return {};
   try {
     const parsed = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return {};
   }
@@ -39,10 +61,14 @@ function fromFile(env: NodeJS.ProcessEnv): Record<string, unknown> {
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): TaigaConfig {
   const file = fromFile(env);
-  const pick = (key: Key) =>
-    clean(env[`TAIGA_${key}`]) ||
-    clean(env[`CLAUDE_PLUGIN_OPTION_TAIGA_${key}`]) ||
-    clean(file[FILE_KEYS[key]]);
+  const pick = (key: Key) => {
+    const read = key === "PASSWORD" ? cleanSecret : clean;
+    return (
+      read(env[`TAIGA_${key}`]) ||
+      read(env[`CLAUDE_PLUGIN_OPTION_TAIGA_${key}`]) ||
+      read(file[FILE_KEYS[key]])
+    );
+  };
 
   const values = Object.fromEntries(KEYS.map((k) => [k, pick(k)])) as Record<Key, string>;
   const url = values.URL.replace(/\/+$/, "");

@@ -44,6 +44,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...ENV, TAIGA_PASSWORD: "${user_config.taiga_password}" })).toThrow(/TAIGA_PASSWORD/);
   });
 
+  it("never trims the password, but still detects a padded placeholder", () => {
+    const cfg = loadConfig({ TAIGA_URL: "https://t", TAIGA_USERNAME: "u", TAIGA_PASSWORD: "  pw \n" });
+    expect(cfg.password).toBe("  pw \n");
+    expect(() =>
+      loadConfig({ TAIGA_URL: "https://t", TAIGA_USERNAME: "u", TAIGA_PASSWORD: "  ${user_config.taiga_password}  " }),
+    ).toThrow(/TAIGA_PASSWORD/);
+  });
+
   it("ignores a missing or malformed config file", () => {
     const dir = mkdtempSync(join(tmpdir(), "taiga-cfg-"));
     writeFileSync(join(dir, "config.json"), "{not json");
