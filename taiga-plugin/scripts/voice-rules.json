@@ -1,0 +1,49 @@
+{
+  "fields": ["subject", "description", "comment", "content", "append_description", "blocked_note"],
+  "hard": [
+    {
+      "id": "ai-authorship",
+      "reason": "текст выдаёт, что его написал инструмент",
+      "pattern": "(?<![\\p{L}\\p{N}])(сгенерирован\\p{L}*|generated (by|with)|as an ai|я\\s*[—-]\\s*ии|ассистент\\p{L}* (подготовил|написал|составил|предлагает)|(с помощью|при помощи|силами) (ии|нейросет\\p{L}*|claude|chatgpt|gpt|llm)|written by (claude|chatgpt|an? ai))(?![\\p{L}\\p{N}])",
+      "flags": "iu"
+    }
+  ],
+  "soft": [
+    {
+      "id": "ai-mention",
+      "reason": "упоминание ИИ, ассистента или модели",
+      "pattern": "(?<![\\p{L}\\p{N}])(ИИ|AI|нейросет\\p{L}*|ассистент\\p{L}*|assistant|Claude|ChatGPT|GPT|LLM|языков\\p{L}+ модел\\p{L}+|language model)(?![\\p{L}\\p{N}])",
+      "flags": "iu"
+    },
+    {
+      "id": "heading-label",
+      "reason": "рубрика-заголовок",
+      "pattern": "^[ \\t]*(?:\\*\\*|#+[ \\t]*|__)?(Контекст|Задача|Цель|Описание|Критерии приёмки|Критерии приемки|Решение|Итог|Результат|Acceptance criteria|Context|Goal|Description|Summary|Steps|Solution|Шаги)(?:\\*\\*|__)?[ \\t]*:",
+      "flags": "imu"
+    },
+    {
+      "id": "emoji",
+      "reason": "эмодзи",
+      "pattern": "[\\u2705\\u274C\\u2B50\\u26A0\\u{1F300}-\\u{1FAFF}]",
+      "flags": "u"
+    },
+    {
+      "id": "bureaucratese",
+      "reason": "канцелярит",
+      "pattern": "в рамках (данн\\p{L}+|э[тт]\\p{L}+) задач\\p{L}*|данн\\p{L}+ функционал\\p{L}*|следует отметить|необходимо (обеспечить|реализовать|осуществить)|осуществить|в целях|является необходимым|в настоящее время",
+      "flags": "iu"
+    },
+    {
+      "id": "as-a-user",
+      "reason": "шаблон «Как <роль>, я хочу … чтобы …»",
+      "pattern": "^[ \\t]*(Как|As an?)\\s[^,\\n]{2,60},\\s*(я хочу|I want)",
+      "flags": "imu"
+    },
+    {
+      "id": "bullet-wall",
+      "reason": "стена из буллетов (6 и больше подряд)",
+      "pattern": "(?:^[ \\t]*[-*•][ \\t].*(?:\\n|$)){6,}",
+      "flags": "mu"
+    }
+  ]
+}
