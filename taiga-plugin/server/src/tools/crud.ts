@@ -404,8 +404,9 @@ export function registerCrudTools(
       const sprint = a.sprint as string | undefined;
       const points = a.points as string | number | undefined;
       const epic = a.epic as string | undefined;
+      const assignedUsers = a.assigned_users as string[] | undefined;
       for (const key of [
-        "project", "id", "ref", "slug", "append_description", "add_tags", "sprint", "points", "epic",
+        "project", "id", "ref", "slug", "append_description", "add_tags", "sprint", "points", "epic", "assigned_users",
       ]) {
         delete a[key];
       }
@@ -421,6 +422,13 @@ export function registerCrudTools(
       }
       if (points !== undefined) {
         changes.points = await resolvePoints(ctx, projectId, points);
+      }
+      // A list of names, resolved one by one against the member table;
+      // the single-assignee path (assigned_to) already goes through resolveFields.
+      if (assignedUsers !== undefined) {
+        changes.assigned_users = await Promise.all(
+          assignedUsers.map((name) => ctx.cache.resolveLookup(projectId, "member", name)),
+        );
       }
 
       if (appendText !== undefined || addTags !== undefined) {

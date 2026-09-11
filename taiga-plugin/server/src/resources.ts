@@ -98,6 +98,10 @@ export const USER_STORY: ResourceDef = {
     due_date: dueDateUpdate,
     is_blocked: z.boolean().optional(),
     blocked_note: z.string().optional(),
+    backlog_order: z.number().optional()
+      .describe("Position in the backlog; lower comes first."),
+    assigned_users: z.array(z.string()).optional()
+      .describe("Full names of everyone assigned; replaces the list, [] clears it."),
   },
   lookups: [
     { field: "status", kind: "userstory-status" },

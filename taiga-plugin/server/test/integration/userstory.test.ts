@@ -288,6 +288,36 @@ describe("user story CRUD", () => {
     expect(updated.isError).toBe(false);
     expect(updated.json.points).toBe(8);
   });
+
+  it("reorders the backlog and sets the co-assignee list by name", async () => {
+    const me = await call("taiga_whoami");
+    const created = await call("taiga_userstory_create", { subject: "Order and owners test" });
+    const ref = track(created.json.ref);
+
+    const updated = await call("taiga_userstory_update", {
+      ref,
+      backlog_order: 1,
+      assigned_users: [me.json.full_name],
+    });
+    expect(updated.isError, updated.raw).toBe(false);
+
+    const read = await call("taiga_userstory_get", { ref, fields: ["backlog_order", "assigned_users"] });
+    expect(read.json.backlog_order).toBe(1);
+    expect(read.json.assigned_users).toEqual([me.json.id]);
+
+    const cleared = await call("taiga_userstory_update", { ref, assigned_users: [] });
+    expect(cleared.isError, cleared.raw).toBe(false);
+    const again = await call("taiga_userstory_get", { ref, fields: ["assigned_users"] });
+    expect(again.json.assigned_users).toEqual([]);
+  });
+
+  it("rejects an unknown co-assignee with the member list", async () => {
+    const created = await call("taiga_userstory_create", { subject: "Unknown owner test" });
+    const ref = track(created.json.ref);
+    const result = await call("taiga_userstory_update", { ref, assigned_users: ["Nobody Here"] });
+    expect(result.isError).toBe(true);
+    expect(result.raw).toMatch(/Nobody Here/);
+  });
 });
 
 // Taiga models story-to-epic linking as its own many-to-many resource
