@@ -1,6 +1,7 @@
 import type { McpServer, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZodRawShape } from "zod";
 import type { ToolContext } from "./context.js";
+import { withVoiceGuard } from "./voice-guard.js";
 
 export type ToolKind = "read" | "create" | "update" | "destructive";
 
@@ -44,6 +45,13 @@ export function defineTool<Args extends ZodRawShape>(
   handler: ToolCallback<Args>,
 ): void {
   if (ctx.options.readOnly && spec.kind !== "read") return;
+  const guarded =
+    spec.kind === "read"
+      ? handler
+      : (withVoiceGuard(
+          ctx.options.voiceGuard,
+          handler as unknown as Parameters<typeof withVoiceGuard>[1],
+        ) as unknown as ToolCallback<Args>);
   server.registerTool(
     spec.name,
     {
@@ -52,6 +60,6 @@ export function defineTool<Args extends ZodRawShape>(
       annotations: ANNOTATIONS[spec.kind],
       ...(spec.confirm ? { _meta: { [REQUIRES_USER_INTERACTION]: true } } : {}),
     },
-    handler,
+    guarded,
   );
 }
