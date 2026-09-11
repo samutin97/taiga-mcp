@@ -33,13 +33,26 @@ const texts = (r: Awaited<ReturnType<Client["callTool"]>>) => (r.content as { te
 describe("TAIGA_VOICE_GUARD", () => {
   it("block: refuses before touching Taiga", async () => {
     const client = await connect("block");
-    const before = await client.callTool({ name: "taiga_userstory_list", arguments: {} });
-    const total = JSON.parse(texts(before)[0]).total;
-    const r = await client.callTool({ name: "taiga_userstory_create", arguments: { subject: "Guard test", description: "Контекст: x" } });
+    const subject = "Guard block test 7d3f";
+    const r = await client.callTool({ name: "taiga_userstory_create", arguments: { subject, description: "Контекст: x" } });
     expect(r.isError).toBe(true);
     expect(texts(r)[0]).toMatch(/рубрика/);
-    const after = await client.callTool({ name: "taiga_userstory_list", arguments: {} });
-    expect(JSON.parse(texts(after)[0]).total).toBe(total);
+
+    // Parallel integration files write to the same shared stand, so an
+    // exact total-count comparison is not safe here. Instead: page through
+    // every story and confirm none carries this test's unique subject —
+    // that proves the refused create never reached Taiga, without
+    // depending on the story count staying quiet.
+    let page = 1;
+    let found = false;
+    for (;;) {
+      const listed = await client.callTool({ name: "taiga_userstory_list", arguments: { limit: 200, page } });
+      const body = JSON.parse(texts(listed)[0]) as { items: { subject: string }[]; has_more: boolean };
+      if (body.items.some((item) => item.subject === subject)) found = true;
+      if (!body.has_more) break;
+      page += 1;
+    }
+    expect(found).toBe(false);
   });
 
   it("warn: writes and appends the findings", async () => {
