@@ -4,6 +4,7 @@ import { type ToolContext, ok, guard, FIELDS_SCHEMA, PROJECT_SCHEMA, asFieldMode
 import { project, projectMany, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
+import { defineTool } from "../registry.js";
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -236,16 +237,22 @@ export function registerCrudTools(
       : {}),
   };
 
-  server.tool(
-    `taiga_${def.name}_list`,
-    `List ${def.label} items in a Taiga project. Returns a slim projection by default. ` +
-      `For name lookup use taiga_search.`,
+  defineTool(
+    server,
+    ctx,
     {
-      project: PROJECT_SCHEMA,
-      ...def.listFilters,
-      limit: z.number().max(200).optional().describe("Max items to return. Default 50."),
-      page: z.number().optional().describe("1-based page number."),
-      fields: FIELDS_SCHEMA,
+      name: `taiga_${def.name}_list`,
+      description:
+        `List ${def.label} items in a Taiga project. Returns a slim projection by default. ` +
+        `For name lookup use taiga_search.`,
+      input: {
+        project: PROJECT_SCHEMA,
+        ...def.listFilters,
+        limit: z.number().max(200).optional().describe("Max items to return. Default 50."),
+        page: z.number().optional().describe("1-based page number."),
+        fields: FIELDS_SCHEMA,
+      },
+      kind: "read",
     },
     guard(async (args) => {
       const { project: ref, fields, limit, page, ...filters } = args as Record<string, unknown>;
@@ -303,10 +310,15 @@ export function registerCrudTools(
     }),
   );
 
-  server.tool(
-    `taiga_${def.name}_get`,
-    `Get one ${def.label} by its #ref number or internal id.`,
-    { project: PROJECT_SCHEMA, ...idArgs, fields: FIELDS_SCHEMA },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: `taiga_${def.name}_get`,
+      description: `Get one ${def.label} by its #ref number or internal id.`,
+      input: { project: PROJECT_SCHEMA, ...idArgs, fields: FIELDS_SCHEMA },
+      kind: "read",
+    },
     guard(async (args) => {
       const a = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(a.project as string | undefined);
@@ -317,10 +329,15 @@ export function registerCrudTools(
     }),
   );
 
-  server.tool(
-    `taiga_${def.name}_create`,
-    `Create a ${def.label}. Status and assignee are given by name, not by id.`,
-    { project: PROJECT_SCHEMA, ...def.createFields },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: `taiga_${def.name}_create`,
+      description: `Create a ${def.label}. Status and assignee are given by name, not by id.`,
+      input: { project: PROJECT_SCHEMA, ...def.createFields },
+      kind: "create",
+    },
     guard(async (args) => {
       const { project: ref, sprint, points, epic, ...rest } = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(ref as string | undefined);
@@ -347,29 +364,35 @@ export function registerCrudTools(
     }),
   );
 
-  server.tool(
-    `taiga_${def.name}_update`,
-    `Update a ${def.label}. Only the fields you pass are changed; the current ` +
-      `version is read and sent automatically.` +
-      (def.supportsAppend
-        ? ` Use append_description and add_tags to add without overwriting.`
-        : ""),
+  defineTool(
+    server,
+    ctx,
     {
-      project: PROJECT_SCHEMA,
-      ...idArgs,
-      ...def.updateFields,
-      ...(def.supportsAppend
-        ? {
-            append_description: z
-              .string()
-              .optional()
-              .describe("Text to append to the existing description."),
-            add_tags: z
-              .array(z.string())
-              .optional()
-              .describe("Tags to add, keeping the existing ones."),
-          }
-        : {}),
+      name: `taiga_${def.name}_update`,
+      description:
+        `Update a ${def.label}. Only the fields you pass are changed; the current ` +
+        `version is read and sent automatically.` +
+        (def.supportsAppend
+          ? ` Use append_description and add_tags to add without overwriting.`
+          : ""),
+      input: {
+        project: PROJECT_SCHEMA,
+        ...idArgs,
+        ...def.updateFields,
+        ...(def.supportsAppend
+          ? {
+              append_description: z
+                .string()
+                .optional()
+                .describe("Text to append to the existing description."),
+              add_tags: z
+                .array(z.string())
+                .optional()
+                .describe("Tags to add, keeping the existing ones."),
+            }
+          : {}),
+      },
+      kind: "update",
     },
     guard(async (args) => {
       const a = { ...(args as Record<string, unknown>) };
@@ -448,17 +471,24 @@ export function registerCrudTools(
     }),
   );
 
-  server.tool(
-    `taiga_${def.name}_delete`,
-    `Permanently delete a ${def.label}. Requires confirm: true. ` +
-      `Ask the user before calling this.`,
+  defineTool(
+    server,
+    ctx,
     {
-      project: PROJECT_SCHEMA,
-      ...idArgs,
-      confirm: z
-        .boolean()
-        .optional()
-        .describe("Must be true. Guards against accidental deletion."),
+      name: `taiga_${def.name}_delete`,
+      description:
+        `Permanently delete a ${def.label}. Requires confirm: true. ` +
+        `Ask the user before calling this.`,
+      input: {
+        project: PROJECT_SCHEMA,
+        ...idArgs,
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("Must be true. Guards against accidental deletion."),
+      },
+      kind: "destructive",
+      confirm: true,
     },
     guard(async (args) => {
       const a = args as Record<string, unknown>;

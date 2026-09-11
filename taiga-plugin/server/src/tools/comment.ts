@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
+import { defineTool } from "../registry.js";
 
 /** Resources that carry a comment thread, mapped to their /history/ segment. */
 const COMMENTABLE = {
@@ -39,10 +40,15 @@ export function registerCommentTools(server: McpServer, ctx: ToolContext): void 
     ref: z.number().optional().describe("The #number shown in Taiga."),
   };
 
-  server.tool(
-    "taiga_comment_list",
-    "List the comments on a user story, task, issue or epic, oldest first.",
-    common,
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_comment_list",
+      description: "List the comments on a user story, task, issue or epic, oldest first.",
+      input: common,
+      kind: "read",
+    },
     guard(async (args) => {
       const a = args as Record<string, unknown>;
       const resource = a.resource as Commentable;
@@ -76,10 +82,15 @@ export function registerCommentTools(server: McpServer, ctx: ToolContext): void 
     }),
   );
 
-  server.tool(
-    "taiga_comment_add",
-    "Add a comment to a user story, task, issue or epic.",
-    { ...common, comment: z.string().min(1).describe("Comment text (Markdown).") },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_comment_add",
+      description: "Add a comment to a user story, task, issue or epic.",
+      input: { ...common, comment: z.string().min(1).describe("Comment text (Markdown).") },
+      kind: "create",
+    },
     guard(async (args) => {
       const a = args as Record<string, unknown>;
       const resource = a.resource as Commentable;

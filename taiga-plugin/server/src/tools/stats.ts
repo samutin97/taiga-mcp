@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
+import { defineTool } from "../registry.js";
 
 interface MilestoneStats {
   name: string;
@@ -15,14 +16,20 @@ interface MilestoneStats {
 }
 
 export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
-  server.tool(
-    "taiga_stats",
-    "Progress statistics. With `sprint` it returns that sprint's points, completed " +
-      "work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+  defineTool(
+    server,
+    ctx,
     {
-      project: PROJECT_SCHEMA,
-      sprint: z.string().optional()
-        .describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats."),
+      name: "taiga_stats",
+      description:
+        "Progress statistics. With `sprint` it returns that sprint's points, completed " +
+        "work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+      input: {
+        project: PROJECT_SCHEMA,
+        sprint: z.string().optional()
+          .describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats."),
+      },
+      kind: "read",
     },
     guard(async (args) => {
       const a = args as { project?: string | number; sprint?: string };

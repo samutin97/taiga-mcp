@@ -5,6 +5,7 @@ import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
 import { resolveEpic, linkStoryToEpic, resolveSprint, resolvePoints } from "./crud.js";
+import { defineTool } from "../registry.js";
 
 const MAX_ITEMS = 50;
 
@@ -32,21 +33,28 @@ async function buildLabels(
 }
 
 export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
-  server.tool(
-    "taiga_bulk_create",
-    `Create up to ${MAX_ITEMS} user stories, tasks or issues in one call. ` +
-      "Each item is created independently: a failure in one does not stop the rest. " +
-      "Show the user the plan before calling this.",
+  defineTool(
+    server,
+    ctx,
     {
-      project: PROJECT_SCHEMA,
-      resource: z.enum(["userstory", "task", "issue"]),
-      items: z
-        .array(z.record(z.unknown()))
-        .min(1)
-        .describe(
-          "Items to create. Each takes the same fields as the matching " +
-            "taiga_<resource>_create tool, e.g. {subject, description, status, tags}.",
-        ),
+      name: "taiga_bulk_create",
+      description:
+        `Create up to ${MAX_ITEMS} user stories, tasks or issues in one call. ` +
+        "Each item is created independently: a failure in one does not stop the rest. " +
+        "Show the user the plan before calling this.",
+      input: {
+        project: PROJECT_SCHEMA,
+        resource: z.enum(["userstory", "task", "issue"]),
+        items: z
+          .array(z.record(z.unknown()))
+          .min(1)
+          .describe(
+            "Items to create. Each takes the same fields as the matching " +
+              "taiga_<resource>_create tool, e.g. {subject, description, status, tags}.",
+          ),
+      },
+      kind: "create",
+      confirm: true,
     },
     guard(async (args) => {
       const a = args as {

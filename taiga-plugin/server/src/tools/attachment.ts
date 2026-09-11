@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
+import { defineTool } from "../registry.js";
 
 // Taiga's gateway (nginx) caps request bodies at 100M on the local stand;
 // refuse early with a clear message instead of buffering a huge file into
@@ -71,10 +72,15 @@ function slim(row: Record<string, unknown>) {
 }
 
 export function registerAttachmentTools(server: McpServer, ctx: ToolContext): void {
-  server.tool(
-    "taiga_attachment_list",
-    "List the files attached to a user story, task, issue or epic.",
-    common,
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_attachment_list",
+      description: "List the files attached to a user story, task, issue or epic.",
+      input: common,
+      kind: "read",
+    },
     guard(async (args) => {
       const a = args as Record<string, unknown>;
       const resource = a.resource as Attachable;
@@ -92,10 +98,16 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
     }),
   );
 
-  server.tool(
-    "taiga_attachment_upload",
-    "Attach a local file to a user story, task, issue or epic.",
-    { ...common, file_path: z.string().describe("Absolute path to the file to upload.") },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_attachment_upload",
+      description: "Attach a local file to a user story, task, issue or epic.",
+      input: { ...common, file_path: z.string().describe("Absolute path to the file to upload.") },
+      kind: "create",
+      confirm: true,
+    },
     guard(async (args) => {
       const a = args as Record<string, unknown>;
       const resource = a.resource as Attachable;
@@ -134,13 +146,18 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
     }),
   );
 
-  server.tool(
-    "taiga_attachment_download",
-    "Download an attachment to a local directory. Get the id from taiga_attachment_list.",
+  defineTool(
+    server,
+    ctx,
     {
-      attachment_id: z.number().describe("Attachment id."),
-      resource: common.resource,
-      target_dir: z.string().describe("Absolute path to the directory to save into."),
+      name: "taiga_attachment_download",
+      description: "Download an attachment to a local directory. Get the id from taiga_attachment_list.",
+      input: {
+        attachment_id: z.number().describe("Attachment id."),
+        resource: common.resource,
+        target_dir: z.string().describe("Absolute path to the directory to save into."),
+      },
+      kind: "read",
     },
     guard(async (args) => {
       const a = args as { attachment_id: number; resource: Attachable; target_dir: string };

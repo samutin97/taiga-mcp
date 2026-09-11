@@ -9,16 +9,17 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
 }>;
 
 /**
- * Captures the handler `registerSearchTool` passes to `server.tool(...)`
- * without needing a real MCP transport — the live Taiga stand's /search
- * endpoint never actually populates the fields this test cares about (see
+ * Captures the handler `registerSearchTool` passes to
+ * `server.registerTool(...)` (via `defineTool`) without needing a real MCP
+ * transport — the live Taiga stand's /search endpoint never actually
+ * populates the fields this test cares about (see
  * test/integration/search-bulk.test.ts), so the label-resolution wiring in
  * search.ts can only be verified against a controlled fixture like this one.
  */
 function captureHandler(): { server: McpServer; handlerFor: (name: string) => ToolHandler } {
   const handlers = new Map<string, ToolHandler>();
   const server = {
-    tool: (name: string, _description: string, _schema: unknown, handler: ToolHandler) => {
+    registerTool: (name: string, _config: unknown, handler: ToolHandler) => {
       handlers.set(name, handler);
     },
   };
@@ -37,6 +38,7 @@ function fakeContext(
   labelMaps: Record<string, Map<number, string>>,
 ): ToolContext {
   return {
+    options: { readOnly: false, voiceGuard: "off" },
     cache: {
       resolveProject: vi.fn(async () => 1),
       labelMap: vi.fn(async (_projectId: number, kind: string) => labelMaps[kind] ?? new Map()),

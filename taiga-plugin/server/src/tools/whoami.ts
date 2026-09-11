@@ -1,12 +1,19 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard } from "../context.js";
+import { defineTool } from "../registry.js";
 
 export function registerWhoamiTool(server: McpServer, ctx: ToolContext): void {
-  server.tool(
-    "taiga_whoami",
-    "Show the authenticated Taiga user and the projects they can access. " +
-      "Use this to verify the connection and to discover project slugs.",
-    {},
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_whoami",
+      description:
+        "Show the authenticated Taiga user and the projects they can access. " +
+        "Use this to verify the connection and to discover project slugs.",
+      input: {},
+      kind: "read",
+    },
     guard(async () => {
       const me = await ctx.client.get<Record<string, unknown>>("/users/me");
       // page_size explicit: Taiga's default page (30) would silently hide

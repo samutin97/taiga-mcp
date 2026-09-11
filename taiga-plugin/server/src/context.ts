@@ -5,11 +5,29 @@ import { TaigaClient } from "./client.js";
 import { SchemaCache } from "./schema-cache.js";
 import type { FieldMode } from "./projections.js";
 
+export type VoiceGuardMode = "off" | "warn" | "block";
+
+export interface ServerOptions {
+  /** TAIGA_READ_ONLY=1: register only tools that never change Taiga. */
+  readOnly: boolean;
+  /** TAIGA_VOICE_GUARD: server-side check of outgoing text (see voice-guard.ts). */
+  voiceGuard: VoiceGuardMode;
+}
+
+export function readServerOptions(env: NodeJS.ProcessEnv = process.env): ServerOptions {
+  const guard = env.TAIGA_VOICE_GUARD;
+  return {
+    readOnly: env.TAIGA_READ_ONLY === "1",
+    voiceGuard: guard === "warn" || guard === "block" ? guard : "off",
+  };
+}
+
 export interface ToolContext {
   config: TaigaConfig;
   auth: TaigaAuth;
   client: TaigaClient;
   cache: SchemaCache;
+  options: ServerOptions;
 }
 
 /**
@@ -25,7 +43,10 @@ class LazyToolContext implements ToolContext {
     cache: SchemaCache;
   };
 
-  constructor(private readonly override?: TaigaConfig) {}
+  constructor(
+    private readonly override?: TaigaConfig,
+    readonly options: ServerOptions = readServerOptions(),
+  ) {}
 
   private build() {
     if (!this.built) {
@@ -52,8 +73,8 @@ class LazyToolContext implements ToolContext {
   }
 }
 
-export function createContext(config?: TaigaConfig): ToolContext {
-  return new LazyToolContext(config);
+export function createContext(config?: TaigaConfig, options?: ServerOptions): ToolContext {
+  return new LazyToolContext(config, options);
 }
 
 export const FIELDS_SCHEMA = z

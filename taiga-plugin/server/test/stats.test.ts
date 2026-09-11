@@ -11,7 +11,7 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
 function captureHandler(): { server: McpServer; handlerFor: (name: string) => ToolHandler } {
   const handlers = new Map<string, ToolHandler>();
   const server = {
-    tool: (name: string, _description: string, _schema: unknown, handler: ToolHandler) => {
+    registerTool: (name: string, _config: unknown, handler: ToolHandler) => {
       handlers.set(name, handler);
     },
   };
@@ -30,6 +30,7 @@ function fakeContext(
   milestoneStatsResponse: Record<string, unknown>,
 ): ToolContext {
   return {
+    options: { readOnly: false, voiceGuard: "off" },
     cache: {
       resolveProject: vi.fn(async () => 1),
     },

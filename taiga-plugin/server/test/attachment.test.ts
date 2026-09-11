@@ -23,16 +23,17 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
 }>;
 
 /**
- * Captures the handler `registerAttachmentTools` passes to `server.tool(...)`
- * without needing a real MCP transport or the live Taiga stand — these tests
- * cover behaviour (path safety, URL redaction, size limits) that either
- * cannot be triggered against a real server (Taiga will not store a hostile
- * `..` name) or would be wasteful to exercise live (a 100 MB fixture file).
+ * Captures the handler `registerAttachmentTools` passes to
+ * `server.registerTool(...)` (via `defineTool`) without needing a real MCP
+ * transport or the live Taiga stand — these tests cover behaviour (path
+ * safety, URL redaction, size limits) that either cannot be triggered
+ * against a real server (Taiga will not store a hostile `..` name) or would
+ * be wasteful to exercise live (a 100 MB fixture file).
  */
 function captureHandler(): { server: McpServer; handlerFor: (name: string) => ToolHandler } {
   const handlers = new Map<string, ToolHandler>();
   const server = {
-    tool: (name: string, _description: string, _schema: unknown, handler: ToolHandler) => {
+    registerTool: (name: string, _config: unknown, handler: ToolHandler) => {
       handlers.set(name, handler);
     },
   };
@@ -45,6 +46,9 @@ function captureHandler(): { server: McpServer; handlerFor: (name: string) => To
     },
   };
 }
+
+/** Every fake ToolContext below needs this since `defineTool` reads it. */
+const options = { readOnly: false, voiceGuard: "off" as const };
 
 async function callHandler(handler: ToolHandler, args: Record<string, unknown>) {
   const result = await handler(args);
@@ -61,6 +65,7 @@ describe("taiga_attachment_download path safety", () => {
     try {
       const { server, handlerFor } = captureHandler();
       const ctx = {
+        options,
         cache: {},
         client: {
           get: vi.fn(async () => ({
@@ -98,6 +103,7 @@ describe("taiga_attachment_download rejects a degenerate `..` file name", () => 
     try {
       const { server, handlerFor } = captureHandler();
       const ctx = {
+        options,
         cache: {},
         client: {
           get: vi.fn(async () => ({
@@ -149,6 +155,7 @@ describe("taiga_attachment_download refuses to overwrite an existing file", () =
 
       const { server, handlerFor } = captureHandler();
       const ctx = {
+        options,
         cache: {},
         client: {
           get: vi.fn(async () => ({
@@ -185,6 +192,7 @@ describe("taiga_attachment_download refuses to overwrite an existing file", () =
     try {
       const { server, handlerFor } = captureHandler();
       const ctx = {
+        options,
         cache: {},
         client: {
           get: vi.fn(async () => ({
@@ -218,6 +226,7 @@ describe("taiga_attachment_list does not leak the signed download URL", () => {
   it("omits `url` from a listed attachment", async () => {
     const { server, handlerFor } = captureHandler();
     const ctx = {
+      options,
       cache: { resolveProject: vi.fn(async () => 1) },
       client: {
         list: vi.fn(async () => ({
