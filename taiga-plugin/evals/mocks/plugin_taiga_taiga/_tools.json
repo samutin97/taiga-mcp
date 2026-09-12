@@ -19,6 +19,91 @@
       }
     },
     {
+      "name": "taiga_project_list",
+      "description": "List the Taiga projects the current user is a member of. If TAIGA_PROJECT is set, every other tool defaults to it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_project_get",
+      "description": "Get one Taiga project by id or slug.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "taiga_project_schema",
       "description": "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
       "inputSchema": {
@@ -96,6 +181,60 @@
           "page": {
             "type": "number",
             "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_userstory_get",
+      "description": "Get one user story by its #ref number or internal id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal user story id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
           },
           "fields": {
             "anyOf": [
@@ -297,6 +436,180 @@
       }
     },
     {
+      "name": "taiga_userstory_delete",
+      "description": "Permanently delete a user story. Requires confirm: true. Ask the user before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal user story id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true. Guards against accidental deletion."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_task_list",
+      "description": "List task items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name."
+          },
+          "user_story": {
+            "type": "number",
+            "description": "Parent story #ref."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_closed": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "number",
+            "maximum": 200,
+            "description": "Max items to return. Default 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_task_get",
+      "description": "Get one task by its #ref number or internal id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal task id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "taiga_task_create",
       "description": "Create a task. Status and assignee are given by name, not by id.",
       "inputSchema": {
@@ -346,6 +659,264 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_task_update",
+      "description": "Update a task. Only the fields you pass are changed; the current version is read and sent automatically. Use append_description and add_tags to add without overwriting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal task id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "user_story": {
+            "type": "number",
+            "description": "Parent story #ref."
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name; \"\" unassigns."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "due_date": {
+            "type": "string",
+            "description": "ISO date; \"\" clears it."
+          },
+          "is_blocked": {
+            "type": "boolean"
+          },
+          "blocked_note": {
+            "type": "string"
+          },
+          "append_description": {
+            "type": "string",
+            "description": "Text to append to the existing description."
+          },
+          "add_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to add, keeping the existing ones."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_task_delete",
+      "description": "Permanently delete a task. Requires confirm: true. Ask the user before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal task id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true. Guards against accidental deletion."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_issue_list",
+      "description": "List issue items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "status": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "description": "e.g. 'High'."
+          },
+          "severity": {
+            "type": "string",
+            "description": "e.g. 'Important'."
+          },
+          "type": {
+            "type": "string",
+            "description": "e.g. 'Bug'."
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_closed": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "number",
+            "maximum": 200,
+            "description": "Max items to return. Default 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_issue_get",
+      "description": "Get one issue by its #ref number or internal id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal issue id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": true
       },
       "execution": {
@@ -414,6 +985,934 @@
       }
     },
     {
+      "name": "taiga_issue_update",
+      "description": "Update a issue. Only the fields you pass are changed; the current version is read and sent automatically. Use append_description and add_tags to add without overwriting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal issue id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name; \"\" unassigns."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "due_date": {
+            "type": "string",
+            "description": "ISO date; \"\" clears it."
+          },
+          "append_description": {
+            "type": "string",
+            "description": "Text to append to the existing description."
+          },
+          "add_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to add, keeping the existing ones."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_issue_delete",
+      "description": "Permanently delete a issue. Requires confirm: true. Ask the user before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal issue id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true. Guards against accidental deletion."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_epic_list",
+      "description": "List epic items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "number",
+            "maximum": 200,
+            "description": "Max items to return. Default 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_epic_get",
+      "description": "Get one epic by its #ref number or internal id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal epic id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_epic_create",
+      "description": "Create a epic. Status and assignee are given by name, not by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string",
+            "description": "Hex colour, e.g. #B22222."
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_epic_update",
+      "description": "Update a epic. Only the fields you pass are changed; the current version is read and sent automatically. Use append_description and add_tags to add without overwriting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal epic id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name; \"\" unassigns."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "append_description": {
+            "type": "string",
+            "description": "Text to append to the existing description."
+          },
+          "add_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to add, keeping the existing ones."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_epic_delete",
+      "description": "Permanently delete a epic. Requires confirm: true. Ask the user before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal epic id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true. Guards against accidental deletion."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_sprint_list",
+      "description": "List sprint items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "Only closed or only open sprints."
+          },
+          "limit": {
+            "type": "number",
+            "maximum": 200,
+            "description": "Max items to return. Default 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_sprint_get",
+      "description": "Get one sprint by its #ref number or internal id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal sprint id."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_sprint_create",
+      "description": "Create a sprint. Status and assignee are given by name, not by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "name": {
+            "type": "string"
+          },
+          "estimated_start": {
+            "type": "string",
+            "description": "ISO date, e.g. 2026-09-07."
+          },
+          "estimated_finish": {
+            "type": "string",
+            "description": "ISO date, e.g. 2026-09-20."
+          }
+        },
+        "required": [
+          "name",
+          "estimated_start",
+          "estimated_finish"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_sprint_update",
+      "description": "Update a sprint. Only the fields you pass are changed; the current version is read and sent automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal sprint id."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug."
+          },
+          "name": {
+            "type": "string"
+          },
+          "estimated_start": {
+            "type": "string"
+          },
+          "estimated_finish": {
+            "type": "string"
+          },
+          "closed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_sprint_delete",
+      "description": "Permanently delete a sprint. Requires confirm: true. Ask the user before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal sprint id."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true. Guards against accidental deletion."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_wiki_list",
+      "description": "List wiki page items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "limit": {
+            "type": "number",
+            "maximum": 200,
+            "description": "Max items to return. Default 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_wiki_get",
+      "description": "Get one wiki page by its #ref number or internal id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal wiki page id."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_wiki_create",
+      "description": "Create a wiki page. Status and assignee are given by name, not by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "slug": {
+            "type": "string",
+            "description": "e.g. 'home'."
+          },
+          "content": {
+            "type": "string",
+            "description": "Markdown content."
+          }
+        },
+        "required": [
+          "slug",
+          "content"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_wiki_update",
+      "description": "Update a wiki page. Only the fields you pass are changed; the current version is read and sent automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal wiki page id."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug."
+          },
+          "content": {
+            "type": "string",
+            "description": "Replacement Markdown content."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_wiki_delete",
+      "description": "Permanently delete a wiki page. Requires confirm: true. Ask the user before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal wiki page id."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true. Guards against accidental deletion."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_comment_list",
+      "description": "List the comments on a user story, task, issue or epic, oldest first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "userstory",
+              "task",
+              "issue",
+              "epic"
+            ],
+            "description": "Which kind of item the comment belongs to."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal item id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          }
+        },
+        "required": [
+          "resource"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "taiga_comment_add",
       "description": "Add a comment to a user story, task, issue or epic.",
       "inputSchema": {
@@ -461,6 +1960,41 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_search",
+      "description": "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Search query."
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": true
       },
       "execution": {
@@ -536,6 +2070,153 @@
             "description": "Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats."
           }
         },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_attachment_list",
+      "description": "List the files attached to a user story, task, issue or epic.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "userstory",
+              "task",
+              "issue",
+              "epic"
+            ],
+            "description": "Which kind of item the attachment belongs to."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal item id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          }
+        },
+        "required": [
+          "resource"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_attachment_upload",
+      "description": "Attach a local file to a user story, task, issue or epic.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "userstory",
+              "task",
+              "issue",
+              "epic"
+            ],
+            "description": "Which kind of item the attachment belongs to."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal item id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Absolute path to the file to upload."
+          }
+        },
+        "required": [
+          "resource",
+          "file_path"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_attachment_download",
+      "description": "Download an attachment to a local directory. Get the id from taiga_attachment_list.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "attachment_id": {
+            "type": "number",
+            "description": "Attachment id."
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "userstory",
+              "task",
+              "issue",
+              "epic"
+            ],
+            "description": "Which kind of item the attachment belongs to."
+          },
+          "target_dir": {
+            "type": "string",
+            "description": "Absolute path to the directory to save into."
+          }
+        },
+        "required": [
+          "attachment_id",
+          "resource",
+          "target_dir"
+        ],
         "additionalProperties": false,
         "$schema": "http://json-schema.org/draft-07/schema#"
       },

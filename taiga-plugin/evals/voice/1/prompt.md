@@ -1,5 +1,5 @@
 ---
-max_turns: 10
+max_turns: 16
 allowed_tools: [Skill, Read, Glob, Grep, "mcp__plugin_taiga_taiga__taiga_userstory_create"]
 ---
 
