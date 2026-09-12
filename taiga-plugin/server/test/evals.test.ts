@@ -94,12 +94,17 @@ function parseFrontmatter(filePath: string): Record<string, string> {
  * graders/regex.md, rebuilt here straight from scripts/voice-rules.json so a
  * change to either the source rules or a copy under evals/ that lets them
  * drift apart fails this test. Anchors get the same widening the generator
- * applies (fix round 1, Critical 2a): the evidence (`focus:/target:
- * mock_calls`) is a JSON trace, so every physical "line" starts with
- * `{"tool":...` — a bare `^` never reaches the start of a field value; a
- * rule anchored with `^[ \t]*` only fires if that anchor is widened to
- * "start of string, right after a newline, or right after an opening
- * JSON-string quote".
+ * applies:
+ *  - fix round 1, Critical 2a: the evidence (`focus:`/`target: mock_calls`)
+ *    is a JSON trace, so every physical "line" starts with `{"tool":...` — a
+ *    bare `^` never reaches the start of a field value; widened to
+ *    "start of string, right after a real newline, or right after an
+ *    opening JSON-string quote".
+ *  - fix round 2, Critical 2a: a newline *inside* a JSON string value is not
+ *    a raw newline byte — JSON escapes it to the literal two characters
+ *    `\`+`n` — so a banned pattern on its own paragraph inside a
+ *    multi-paragraph `description` ("Сейчас руками.\n\nКритерии приёмки: …")
+ *    still needs a third alternative: that literal two-character escape.
  */
 function expectedVoiceRegexPattern(): string {
   const rules = JSON.parse(readFileSync(VOICE_RULES_PATH, "utf8"));
@@ -110,8 +115,17 @@ function expectedVoiceRegexPattern(): string {
     ),
   ];
   const widenAnchor = (pattern: string) =>
-    pattern.replace(/^\^\[ \\t\]\*/, '(?:^|\\n|")[ \t]*');
+    pattern.replace(/^\^\[ \\t\]\*/, '(?:^|\\\\n|\\n|")[ \\t]*');
   return ruleSet.map((r: { pattern: string }) => `(?:${widenAnchor(r.pattern)})`).join("|");
+}
+
+/** Build a one-call JSON evidence blob the way `mock_calls` actually renders it. */
+function jsonTraceEvidence(description: string): string {
+  return JSON.stringify({
+    tool: "mcp__plugin_taiga_taiga__taiga_userstory_create",
+    input: { project: "mcp-sandbox", subject: "x", description },
+    output: { ref: 9001 },
+  });
 }
 
 describe("evals suite structure", () => {
@@ -228,6 +242,37 @@ describe("evals suite structure", () => {
       const fm = parseFrontmatter(path.join(EVALS_ROOT, dir, "graders", "regex.md"));
       expect(fm.pattern, `${dir}/graders/regex.md pattern`).toBe(expected);
     }
+  });
+
+  it("the voice regex actually matches a banned pattern on its own paragraph inside a JSON string value", () => {
+    // This is the fix-round-2 regression: the round-1 anchor (start of
+    // string / real newline / after an opening quote) still missed a
+    // banned pattern that starts its own paragraph *inside* a single
+    // multi-paragraph description, because JSON escapes an embedded
+    // newline to the literal two characters `\`+`n`, not a raw newline
+    // byte — so a bare "after a real newline" alternative never lines up
+    // with it.
+    const re = new RegExp(expectedVoiceRegexPattern(), "imu");
+
+    const headingAfterEmbeddedNewline = jsonTraceEvidence(
+      "Сейчас руками.\n\nКритерии приёмки: раз, два",
+    );
+    expect(re.test(headingAfterEmbeddedNewline), "heading-label after an embedded newline").toBe(
+      true,
+    );
+
+    const asAUserAfterEmbeddedNewline = jsonTraceEvidence(
+      "Сейчас руками.\n\nКак менеджер, я хочу заводить сам, чтобы не ждать",
+    );
+    expect(
+      re.test(asAUserAfterEmbeddedNewline),
+      "as-a-user after an embedded newline",
+    ).toBe(true);
+
+    const clean = jsonTraceEvidence(
+      "Просто короткая заметка без всяких рубрик и шаблонов, обычным языком.",
+    );
+    expect(re.test(clean), "a clean description must not match").toBe(false);
   });
 
   it("every voice case requires that something was actually written", () => {

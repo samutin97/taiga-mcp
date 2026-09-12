@@ -122,29 +122,47 @@ the run that verified the other globs.)
   — **полный** срез `tools/list`, все 42 инструмента плагина (не только
   замоканные — без записи здесь агент видит инструмент с «permissive
   schema» и без описания, даже если знает его имя) — и по одному `<tool>.md`
-  (`type: fixed`, тело — сырой JSON) на 21 инструмент: `taiga_whoami`,
-  `taiga_project_schema`, `taiga_userstory_list` (9 историй стенда, slim),
-  `taiga_userstory_get` (полная форма истории #5), `taiga_task_list`,
-  `taiga_task_update`, `taiga_issue_list`, `taiga_sprint_list`,
-  `taiga_sprint_get`, `taiga_epic_list`, `taiga_epic_create`,
-  `taiga_comment_list`, `taiga_search`, `taiga_attachment_list`,
-  `taiga_stats`, `taiga_userstory_create`, `taiga_task_create`,
-  `taiga_issue_create`, `taiga_comment_add`, `taiga_bulk_create`,
-  `taiga_userstory_update` — у созданных/обновлённых записей заведомо
-  фиктивные `ref` (9001+), не пересекающиеся с реальными данными стенда.
-  Остальные 21 инструмента плагина видны агенту по имени и схеме (из
-  `_tools.json`), но не имеют своего `<tool>.md` — вызов любого из них
-  вернётся как немокнутый (нет ответа), так что кейсы намеренно не просят
-  того, что требует одного из них.
+  (`type: fixed`, тело — сырой JSON) на 22 инструмента: `taiga_whoami`,
+  `taiga_project_list`, `taiga_project_schema`, `taiga_userstory_list`
+  (9 историй стенда, slim), `taiga_userstory_get` (полная форма истории #5),
+  `taiga_task_list`, `taiga_task_update`, `taiga_issue_list`,
+  `taiga_sprint_list`, `taiga_sprint_get`, `taiga_epic_list`,
+  `taiga_epic_create`, `taiga_comment_list`, `taiga_search`,
+  `taiga_attachment_list`, `taiga_stats`, `taiga_userstory_create`,
+  `taiga_task_create`, `taiga_issue_create`, `taiga_comment_add`,
+  `taiga_bulk_create`, `taiga_userstory_update` — у созданных/обновлённых
+  записей заведомо фиктивные `ref` (9001+), не пересекающиеся с реальными
+  данными стенда. Остальные 20 инструментов плагина видны агенту по имени и
+  схеме (из `_tools.json`), но не имеют своего `<tool>.md` — вызов любого из
+  них вернётся как немокнутый (нет ответа), так что кейсы намеренно не
+  просят того, что требует одного из них.
 
-  **`taiga_stats` — один фиксированный (project-scope) ответ.** У этого
-  инструмента ОДИН канонический ответ на любые аргументы — реальный вызов
-  умеет как `taiga_stats` без `sprint` (числа по всему проекту), так и с
-  `sprint: "Sprint N"` (бёрндаун по дням), но responder `fixed` не различает
-  входные аргументы: что бы кейс ни передал, вернётся один и тот же ответ
-  уровня проекта. Значит под моками спринтовая ветка `taiga_stats` не
-  проверяется вообще — если это понадобится, нужен `type: agent` responder
-  (`_server.md` с прозой и `abort_when`) вместо `fixed`, здесь не заводили.
+  **Все 22 замоканных инструмента слепы к аргументам, не только
+  `taiga_stats`.** `responder: fixed` — один канонический ответ на любые
+  входные данные; это не только даёт неполное покрытие (`taiga_stats` не
+  различает `sprint` — реальный вызов умеет и project-scope числа, и
+  бёрндаун конкретного спринта, а под моками только project-scope), это ещё
+  и означает, что мок **отвечает не на то, что реально спросили**, если
+  аргументы вообще на что-то влияют: `taiga_sprint_get` всегда возвращает
+  Sprint 1, каким бы `slug`/`id` ни передали; `taiga_userstory_get` всегда
+  возвращает полную форму истории #5, независимо от переданного `ref` и от
+  списка `fields` (агент может попросить три поля и получить полный объект
+  на полсотни ключей); `taiga_userstory_list`/`taiga_task_list`/
+  `taiga_issue_list`/`taiga_epic_list` игнорируют любые фильтры и лимиты.
+  Если кейсу важно, чтобы инструмент действительно различал аргументы
+  (например, читать несколько РАЗНЫХ историй в одном сценарии), `fixed`
+  этого не даёт — нужен `type: agent` responder (`_server.md` с прозой и
+  `abort_when`), здесь не заводили.
+
+  **Артефакт: `taiga_userstory_get` после `taiga_userstory_update` не видит
+  свою же запись.** Голосовой кейс `voice/6` дописывает историю #5, затем
+  (иногда) перечитывает её — и получает тот же статичный мок, что и до
+  записи (то же `total_comments`, без только что добавленного текста).
+  Реальный сервер, конечно, вернул бы обновлённые данные; под `fixed`-моком
+  это невозможно в принципе (ответ не зависит ни от каких предыдущих
+  вызовов). Агент, который сверяется с чтением после записи, может решить,
+  что запись не применилась — держите в уме, если увидите кейс, который из-за
+  этого не завершается.
 
   Промпты выровнены под то, что реально есть в моках: `taiga_sprint_report`
   спрашивает про «спринт 1» (моки знают только Sprint 1/Sprint 2, третьего
