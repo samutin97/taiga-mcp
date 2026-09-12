@@ -1,0 +1,6 @@
+---
+max_turns: 10
+allowed_tools: [Skill, Read, Glob, Grep, "mcp__plugin_taiga_taiga__taiga_userstory_update"]
+---
+
+Возвращаюсь к истории #5 ("Expose user story CRUD as MCP tools") в mcp-sandbox после обеда — разобрался ещё с одним куском: обновление теперь читает текущую версию перед записью, так что гонки при параллельном редактировании больше нет. Допиши это в описание истории #5, не стирая то, что там уже есть.

@@ -1,0 +1,553 @@
+{
+  "tools": [
+    {
+      "name": "taiga_whoami",
+      "description": "Show the authenticated Taiga user and the projects they can access. Use this to verify the connection and to discover project slugs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_project_schema",
+      "description": "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_userstory_list",
+      "description": "List user story items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint (milestone) name to filter by."
+          },
+          "in_backlog": {
+            "type": "boolean",
+            "description": "Only stories not assigned to any sprint."
+          },
+          "status": {
+            "type": "string",
+            "description": "Status name, e.g. 'In progress'."
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name."
+          },
+          "epic": {
+            "type": "string",
+            "description": "Epic subject to filter by."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Stories carrying any of these tags."
+          },
+          "is_closed": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "number",
+            "maximum": 200,
+            "description": "Max items to return. Default 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "1-based page number."
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "slim"
+              },
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Detail level: 'slim' (default), 'full', or a list of field names."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_userstory_create",
+      "description": "Create a user story. Status and assignee are given by name, not by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status name; defaults to the project's first status."
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name."
+          },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint (milestone) name."
+          },
+          "points": {
+            "type": "string",
+            "description": "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles are left unestimated."
+          },
+          "epic": {
+            "type": "string",
+            "description": "Epic subject to link this story to; empty string unlinks it."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "due_date": {
+            "type": "string",
+            "description": "ISO date, e.g. 2026-09-30."
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_userstory_update",
+      "description": "Update a user story. Only the fields you pass are changed; the current version is read and sent automatically. Use append_description and add_tags to add without overwriting.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal user story id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Assignee full name; \"\" unassigns."
+          },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint name; \"\" moves to backlog."
+          },
+          "points": {
+            "type": "string",
+            "description": "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles keep their current estimate."
+          },
+          "epic": {
+            "type": "string",
+            "description": "Epic subject to link this story to; empty string unlinks it."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "due_date": {
+            "type": "string",
+            "description": "ISO date; \"\" clears it."
+          },
+          "is_blocked": {
+            "type": "boolean"
+          },
+          "blocked_note": {
+            "type": "string"
+          },
+          "backlog_order": {
+            "type": "number",
+            "description": "Position in the backlog; lower comes first."
+          },
+          "assigned_users": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Full names of everyone assigned; replaces the list, [] clears it."
+          },
+          "append_description": {
+            "type": "string",
+            "description": "Text to append to the existing description."
+          },
+          "add_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to add, keeping the existing ones."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_task_create",
+      "description": "Create a task. Status and assignee are given by name, not by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "user_story": {
+            "type": "number",
+            "description": "Parent story #ref."
+          },
+          "status": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "due_date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_issue_create",
+      "description": "Create a issue. Status and assignee are given by name, not by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names."
+          },
+          "due_date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_comment_add",
+      "description": "Add a comment to a user story, task, issue or epic.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "userstory",
+              "task",
+              "issue",
+              "epic"
+            ],
+            "description": "Which kind of item the comment belongs to."
+          },
+          "id": {
+            "type": "number",
+            "description": "Internal item id."
+          },
+          "ref": {
+            "type": "number",
+            "description": "The #number shown in Taiga."
+          },
+          "comment": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Comment text (Markdown)."
+          }
+        },
+        "required": [
+          "resource",
+          "comment"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_bulk_create",
+      "description": "Create up to 50 user stories, tasks or issues in one call. Each item is created independently: a failure in one does not stop the rest. Show the user the plan before calling this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "userstory",
+              "task",
+              "issue"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            "minItems": 1,
+            "description": "Items to create. Each takes the same fields as the matching taiga_<resource>_create tool, e.g. {subject, description, status, tags}."
+          }
+        },
+        "required": [
+          "resource",
+          "items"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "anthropic/requiresUserInteraction": true
+      }
+    },
+    {
+      "name": "taiga_stats",
+      "description": "Progress statistics. With `sprint` it returns that sprint's points, completed work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

@@ -12,3 +12,6 @@ __pycache__/
 *.py[cod]
 .venv/
 
+
+# claude plugin eval run output — regenerated locally, never committed
+taiga-plugin/evals/results/
