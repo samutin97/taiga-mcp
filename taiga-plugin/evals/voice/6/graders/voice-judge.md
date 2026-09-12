@@ -48,4 +48,9 @@ comment_list, attachment_list), — не оценивай и не упомина
 Критика: та же мысль без шаблона — польза сформулирована напрямую, от первого лица.
 Вердикт: PASS
 
+Вызов: {"tool":"mcp__plugin_taiga_taiga__taiga_userstory_get","input":{"ref":9},"output":{"id":14,"subject":"Cache project schema lookups","status":"In progress","milestone_name":"Sprint 1"}}
+Вызов: {"tool":"mcp__plugin_taiga_taiga__taiga_userstory_update","input":{"ref":9,"append_description":"Кэш схемы теперь сам сбрасывается при ошибке 409 от Taiga, так что вручную перезапускать синхронизацию после конфликта версий не нужно."},"output":{"ref":9,"version":5}}
+Критика: первый вызов — английский ответ на чтение (id, subject, status, milestone_name) и служебные id/ref/version во втором — не в счёт; смотрю только input.append_description второго вызова: одно безличное техническое предложение о том, что теперь делает кэш при ошибке 409 — обычная заметка человека о системе, а не рубрика и не протокольный отчёт инструмента.
+Вердикт: PASS
+
 Оцени приведённый ниже текст (только те поля пишущих вызовов, что описаны выше) по этим же правилам.
