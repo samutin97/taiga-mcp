@@ -7,7 +7,7 @@
     "node": ">=20.11"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build": "esbuild src/stdio.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "test": "vitest run && node --test ../scripts/*.test.mjs",
     "test:server": "vitest run",
     "test:scripts": "node --test ../scripts/*.test.mjs",
