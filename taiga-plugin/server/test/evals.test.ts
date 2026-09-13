@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { evalRegexPattern } from "../../scripts/lib/voice-rules.mjs";
+import { startClient } from "./helpers/mcp-client.js";
 
 // Structural checks for the eval suite under taiga-plugin/evals/. These do not
 // run `claude plugin eval` itself (that needs network + a real/mocked MCP
@@ -275,5 +276,23 @@ describe("evals suite structure", () => {
       expect(fm.min, `${dir}/graders/wrote.md min`).toBe("1");
       expect(fm.tool, `${dir}/graders/wrote.md tool`).toMatch(/^mcp__plugin_taiga_taiga__taiga_/);
     }
+  });
+
+  it("keeps the seven voice-judge.md copies byte-identical", () => {
+    const [first, ...rest] = VOICE_CASE_DIRS.map((dir) =>
+      readFileSync(path.join(EVALS_ROOT, dir, "graders", "voice-judge.md")),
+    );
+    VOICE_CASE_DIRS.slice(1).forEach((dir, i) => {
+      expect(rest[i].equals(first), `${dir}/graders/voice-judge.md differs from voice/1's`).toBe(true);
+    });
+  });
+
+  it("keeps the eval mock's tool name set equal to the live listTools() output", async () => {
+    const mockPath = path.join(EVALS_ROOT, "mocks", "plugin_taiga_taiga", "_tools.json");
+    const mock = JSON.parse(readFileSync(mockPath, "utf8")) as { tools: { name: string }[] };
+    const mockNames = new Set(mock.tools.map((t) => t.name));
+    const { tools } = await (await startClient()).listTools();
+    const liveNames = new Set(tools.map((t) => t.name));
+    expect(mockNames).toEqual(liveNames);
   });
 });
