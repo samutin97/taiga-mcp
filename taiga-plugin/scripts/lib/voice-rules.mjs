@@ -67,6 +67,36 @@ export function checkArgs(args, c) {
   return out;
 }
 
+/** Soft rule ids the eval regex grader also cares about (besides all hard rules). */
+const EVAL_SOFT_IDS = ["heading-label", "as-a-user", "emoji"];
+
+/**
+ * Anchors get widened for the eval grader: its evidence is a JSON trace
+ * (`mock_calls`), so every physical "line" starts with `{"tool":...` — a bare
+ * `^` never reaches the start of a field value, and a newline *inside* a JSON
+ * string value is not a raw newline byte but the literal two-character escape
+ * `\`+`n`. Widen to "start of string, right after that literal escape, right
+ * after a real newline, or right after an opening JSON-string quote".
+ */
+function widenAnchor(pattern) {
+  return pattern.replace(/^\^\[ \\t\]\*/, '(?:^|\\\\n|\\n|")[ \\t]*');
+}
+
+/**
+ * The combined regex the eval runner's `graders/regex.md` files should hold
+ * for every voice case: all hard rules plus the soft rules that also gate
+ * write tool calls in spirit (heading labels, the "as a user" template,
+ * emoji), each anchor-widened for JSON-trace evidence. One implementation,
+ * shared by scripts/gen-eval-regex.mjs and server/test/evals.test.ts.
+ */
+export function evalRegexPattern(source = RULES) {
+  const ruleSet = [
+    ...(source.hard ?? []),
+    ...(source.soft ?? []).filter((r) => EVAL_SOFT_IDS.includes(r.id)),
+  ];
+  return ruleSet.map((r) => `(?:${widenAnchor(r.pattern)})`).join("|");
+}
+
 export function formatReason(findings) {
   const lines = findings.map((f) => `— ${f.reason}${f.field ? ` (${f.field})` : ""}: «${f.quote}»`);
   const hard = findings.some((f) => f.level === "hard");

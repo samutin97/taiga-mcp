@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { evalRegexPattern } from "../../scripts/lib/voice-rules.mjs";
 
 // Structural checks for the eval suite under taiga-plugin/evals/. These do not
 // run `claude plugin eval` itself (that needs network + a real/mocked MCP
@@ -10,7 +11,6 @@ import path from "node:path";
 // actually asserts absence, every voice case's regex matches the rules file).
 
 const EVALS_ROOT = path.resolve(__dirname, "../../evals");
-const VOICE_RULES_PATH = path.resolve(__dirname, "../../scripts/voice-rules.json");
 
 const INVOCABLE_SKILLS = [
   "taiga-setup",
@@ -91,10 +91,12 @@ function parseFrontmatter(filePath: string): Record<string, string> {
 
 /**
  * The exact combined regex the eval runner should see in every voice case's
- * graders/regex.md, rebuilt here straight from scripts/voice-rules.json so a
- * change to either the source rules or a copy under evals/ that lets them
- * drift apart fails this test. Anchors get the same widening the generator
- * applies:
+ * graders/regex.md. `evalRegexPattern()` (scripts/lib/voice-rules.mjs) is the
+ * one implementation, shared with scripts/gen-eval-regex.mjs which writes the
+ * seven copies under evals/ — importing it here (instead of re-deriving the
+ * pattern locally) is what makes this test fail if either the source rules or
+ * a stale copy under evals/ drifts from it. Anchors get the same widening the
+ * generator applies:
  *  - fix round 1, Critical 2a: the evidence (`focus:`/`target: mock_calls`)
  *    is a JSON trace, so every physical "line" starts with `{"tool":...` — a
  *    bare `^` never reaches the start of a field value; widened to
@@ -107,16 +109,7 @@ function parseFrontmatter(filePath: string): Record<string, string> {
  *    still needs a third alternative: that literal two-character escape.
  */
 function expectedVoiceRegexPattern(): string {
-  const rules = JSON.parse(readFileSync(VOICE_RULES_PATH, "utf8"));
-  const ruleSet = [
-    ...rules.hard,
-    ...rules.soft.filter((r: { id: string }) =>
-      ["heading-label", "as-a-user", "emoji"].includes(r.id),
-    ),
-  ];
-  const widenAnchor = (pattern: string) =>
-    pattern.replace(/^\^\[ \\t\]\*/, '(?:^|\\\\n|\\n|")[ \\t]*');
-  return ruleSet.map((r: { pattern: string }) => `(?:${widenAnchor(r.pattern)})`).join("|");
+  return evalRegexPattern();
 }
 
 /** Build a one-call JSON evidence blob the way `mock_calls` actually renders it. */

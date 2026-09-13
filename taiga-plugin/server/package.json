@@ -12,7 +12,8 @@
     "test:server": "vitest run",
     "test:scripts": "node --test ../scripts/*.test.mjs",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen:eval-regex": "node ../scripts/gen-eval-regex.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

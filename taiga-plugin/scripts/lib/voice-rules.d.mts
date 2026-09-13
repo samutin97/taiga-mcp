@@ -7,4 +7,5 @@ export const RULES: VoiceRules;
 export function compileRules(source?: VoiceRules): CompiledRules;
 export function checkText(text: unknown, compiled?: CompiledRules): Finding[];
 export function checkArgs(args: unknown, compiled?: CompiledRules): Finding[];
+export function evalRegexPattern(source?: VoiceRules): string;
 export function formatReason(findings: Finding[]): string;
