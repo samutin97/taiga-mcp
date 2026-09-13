@@ -1094,11 +1094,11 @@ var require_util = __commonJS({
       return false;
     }
     exports.schemaHasRules = schemaHasRules;
-    function schemaHasRulesButRef(schema, RULES) {
+    function schemaHasRulesButRef(schema, RULES2) {
       if (typeof schema == "boolean")
         return !schema;
       for (const key in schema)
-        if (key !== "$ref" && RULES.all[key])
+        if (key !== "$ref" && RULES2.all[key])
           return true;
       return false;
     }
@@ -2492,17 +2492,17 @@ var require_validate = __commonJS({
     }
     function schemaKeywords(it, types, typeErrors, errsCount) {
       const { gen, schema, data, allErrors, opts, self } = it;
-      const { RULES } = self;
-      if (schema.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema, RULES))) {
-        gen.block(() => keywordCode(it, "$ref", RULES.all.$ref.definition));
+      const { RULES: RULES2 } = self;
+      if (schema.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema, RULES2))) {
+        gen.block(() => keywordCode(it, "$ref", RULES2.all.$ref.definition));
         return;
       }
       if (!opts.jtd)
         checkStrictTypes(it, types);
       gen.block(() => {
-        for (const group of RULES.rules)
+        for (const group of RULES2.rules)
           groupKeywords(group);
-        groupKeywords(RULES.post);
+        groupKeywords(RULES2.post);
       });
       function groupKeywords(group) {
         if (!(0, applicability_1.shouldUseGroup)(schema, group))
@@ -4600,10 +4600,10 @@ var require_core = __commonJS({
       }
       // Remove keyword
       removeKeyword(keyword) {
-        const { RULES } = this;
-        delete RULES.keywords[keyword];
-        delete RULES.all[keyword];
-        for (const group of RULES.rules) {
+        const { RULES: RULES2 } = this;
+        delete RULES2.keywords[keyword];
+        delete RULES2.all[keyword];
+        for (const group of RULES2.rules) {
           const i = group.rules.findIndex((rule) => rule.keyword === keyword);
           if (i >= 0)
             group.rules.splice(i, 1);
@@ -4771,9 +4771,9 @@ var require_core = __commonJS({
     }
     var KEYWORD_NAME = /^[a-z_$][a-z0-9_$:-]*$/i;
     function checkKeyword(keyword, def) {
-      const { RULES } = this;
+      const { RULES: RULES2 } = this;
       (0, util_1.eachItem)(keyword, (kwd) => {
-        if (RULES.keywords[kwd])
+        if (RULES2.keywords[kwd])
           throw new Error(`Keyword ${kwd} is already defined`);
         if (!KEYWORD_NAME.test(kwd))
           throw new Error(`Keyword ${kwd} has invalid name`);
@@ -4789,13 +4789,13 @@ var require_core = __commonJS({
       const post = definition === null || definition === void 0 ? void 0 : definition.post;
       if (dataType && post)
         throw new Error('keyword with "post" flag cannot have "type"');
-      const { RULES } = this;
-      let ruleGroup = post ? RULES.post : RULES.rules.find(({ type: t }) => t === dataType);
+      const { RULES: RULES2 } = this;
+      let ruleGroup = post ? RULES2.post : RULES2.rules.find(({ type: t }) => t === dataType);
       if (!ruleGroup) {
         ruleGroup = { type: dataType, rules: [] };
-        RULES.rules.push(ruleGroup);
+        RULES2.rules.push(ruleGroup);
       }
-      RULES.keywords[keyword] = true;
+      RULES2.keywords[keyword] = true;
       if (!definition)
         return;
       const rule = {
@@ -4810,7 +4810,7 @@ var require_core = __commonJS({
         addBeforeRule.call(this, ruleGroup, rule, definition.before);
       else
         ruleGroup.rules.push(rule);
-      RULES.all[keyword] = rule;
+      RULES2.all[keyword] = rule;
       (_a = definition.implements) === null || _a === void 0 ? void 0 : _a.forEach((kwd) => this.addKeyword(kwd));
     }
     function addBeforeRule(ruleGroup, rule, before) {
@@ -21429,6 +21429,10 @@ var StdioServerTransport = class {
   }
 };
 
+// src/config.ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 // src/errors.ts
 var TaigaError = class extends Error {
   status;
@@ -21479,25 +21483,48 @@ function describeHttpError(status, body) {
 }
 
 // src/config.ts
+var KEYS = ["URL", "USERNAME", "PASSWORD", "PROJECT"];
+var FILE_KEYS = { URL: "url", USERNAME: "username", PASSWORD: "password", PROJECT: "project" };
+function isPlaceholder(trimmed) {
+  return /^\$\{.*\}$/.test(trimmed);
+}
+function clean(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return isPlaceholder(trimmed) ? "" : trimmed;
+}
+function cleanSecret(value) {
+  if (typeof value !== "string") return "";
+  return isPlaceholder(value.trim()) ? "" : value;
+}
+function fromFile(env) {
+  const dir = env.CLAUDE_PLUGIN_DATA;
+  if (!dir) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 function loadConfig(env = process.env) {
-  const url = (env.TAIGA_URL ?? "").trim().replace(/\/+$/, "");
-  const username = (env.TAIGA_USERNAME ?? "").trim();
-  const password = env.TAIGA_PASSWORD ?? "";
-  const missing = [
-    !url && "TAIGA_URL",
-    !username && "TAIGA_USERNAME",
-    !password && "TAIGA_PASSWORD"
-  ].filter(Boolean);
+  const file = fromFile(env);
+  const pick2 = (key) => {
+    const read = key === "PASSWORD" ? cleanSecret : clean;
+    return read(env[`TAIGA_${key}`]) || read(env[`CLAUDE_PLUGIN_OPTION_TAIGA_${key}`]) || read(file[FILE_KEYS[key]]);
+  };
+  const values = Object.fromEntries(KEYS.map((k) => [k, pick2(k)]));
+  const url = values.URL.replace(/\/+$/, "");
+  const missing = ["URL", "USERNAME", "PASSWORD"].filter((k) => !values[k]).map((k) => `TAIGA_${k}`);
   if (missing.length > 0) {
     throw new TaigaError(
       `The Taiga plugin is not configured: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set.`,
       {
-        hint: "Set them in your Claude Code settings, then retry. TAIGA_URL is the instance address without /api/v1."
+        hint: "Run /plugin, open the taiga plugin and fill in its settings (address, login, password), or set TAIGA_URL, TAIGA_USERNAME and TAIGA_PASSWORD in the environment. TAIGA_URL is the instance address without /api/v1."
       }
     );
   }
-  const defaultProject = env.TAIGA_PROJECT?.trim() || void 0;
-  return { url, username, password, defaultProject };
+  return { url, username: values.USERNAME, password: values.PASSWORD, defaultProject: values.PROJECT || void 0 };
 }
 
 // src/auth.ts
@@ -21853,9 +21880,17 @@ var SchemaCache = class {
 };
 
 // src/context.ts
+function readServerOptions(env = process.env) {
+  const guard2 = env.TAIGA_VOICE_GUARD;
+  return {
+    readOnly: env.TAIGA_READ_ONLY === "1",
+    voiceGuard: guard2 === "warn" || guard2 === "block" ? guard2 : "off"
+  };
+}
 var LazyToolContext = class {
-  constructor(override) {
+  constructor(override, options = readServerOptions()) {
     this.override = override;
+    this.options = options;
   }
   built;
   build() {
@@ -21881,10 +21916,11 @@ var LazyToolContext = class {
     return this.build().cache;
   }
 };
-function createContext(config2) {
-  return new LazyToolContext(config2);
+function createContext(config2, options) {
+  return new LazyToolContext(config2, options);
 }
 var FIELDS_SCHEMA = external_exports.union([external_exports.literal("slim"), external_exports.literal("full"), external_exports.array(external_exports.string())]).optional().describe("Detail level: 'slim' (default), 'full', or a list of field names.");
+var PROJECT_SCHEMA = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug.");
 function asFieldMode(value) {
   if (value === "full") return "full";
   if (Array.isArray(value)) return value;
@@ -21909,12 +21945,172 @@ function guard(handler) {
   };
 }
 
+// ../scripts/voice-rules.json
+var voice_rules_default = {
+  fields: ["subject", "description", "comment", "content", "append_description", "blocked_note"],
+  hard: [
+    {
+      id: "ai-authorship",
+      reason: "\u0442\u0435\u043A\u0441\u0442 \u0432\u044B\u0434\u0430\u0451\u0442, \u0447\u0442\u043E \u0435\u0433\u043E \u043D\u0430\u043F\u0438\u0441\u0430\u043B \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442",
+      pattern: "(?<![\\p{L}\\p{N}])(\u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\\p{L}*|generated (by|with)|as an ai|\u044F\\s*[\u2014-]\\s*\u0438\u0438|\u0430\u0441\u0441\u0438\u0441\u0442\u0435\u043D\u0442\\p{L}* (\u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u0438\u043B|\u043D\u0430\u043F\u0438\u0441\u0430\u043B|\u0441\u043E\u0441\u0442\u0430\u0432\u0438\u043B|\u043F\u0440\u0435\u0434\u043B\u0430\u0433\u0430\u0435\u0442)|(\u0441 \u043F\u043E\u043C\u043E\u0449\u044C\u044E|\u043F\u0440\u0438 \u043F\u043E\u043C\u043E\u0449\u0438|\u0441\u0438\u043B\u0430\u043C\u0438) (\u0438\u0438|\u043D\u0435\u0439\u0440\u043E\u0441\u0435\u0442\\p{L}*|claude|chatgpt|gpt|llm)|written by (claude|chatgpt|an? ai))(?![\\p{L}\\p{N}])",
+      flags: "iu"
+    }
+  ],
+  soft: [
+    {
+      id: "ai-mention",
+      reason: "\u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0435 \u0418\u0418, \u0430\u0441\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u0430 \u0438\u043B\u0438 \u043C\u043E\u0434\u0435\u043B\u0438",
+      pattern: "(?<![\\p{L}\\p{N}])(\u0418\u0418|AI|\u043D\u0435\u0439\u0440\u043E\u0441\u0435\u0442\\p{L}*|\u0430\u0441\u0441\u0438\u0441\u0442\u0435\u043D\u0442\\p{L}*|assistant|Claude|ChatGPT|GPT|LLM|\u044F\u0437\u044B\u043A\u043E\u0432\\p{L}+ \u043C\u043E\u0434\u0435\u043B\\p{L}+|language model)(?![\\p{L}\\p{N}])",
+      flags: "iu"
+    },
+    {
+      id: "heading-label",
+      reason: "\u0440\u0443\u0431\u0440\u0438\u043A\u0430-\u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A",
+      pattern: "^[ \\t]*(?:\\*\\*|#+[ \\t]*|__)?(\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442|\u0417\u0430\u0434\u0430\u0447\u0430|\u0426\u0435\u043B\u044C|\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435|\u041A\u0440\u0438\u0442\u0435\u0440\u0438\u0438 \u043F\u0440\u0438\u0451\u043C\u043A\u0438|\u041A\u0440\u0438\u0442\u0435\u0440\u0438\u0438 \u043F\u0440\u0438\u0435\u043C\u043A\u0438|\u0420\u0435\u0448\u0435\u043D\u0438\u0435|\u0418\u0442\u043E\u0433|\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442|Acceptance criteria|Context|Goal|Description|Summary|Steps|Solution|\u0428\u0430\u0433\u0438)(?:\\*\\*|__)?[ \\t]*:",
+      flags: "imu"
+    },
+    {
+      id: "emoji",
+      reason: "\u044D\u043C\u043E\u0434\u0437\u0438",
+      pattern: "[\\u2705\\u274C\\u2B50\\u26A0\\u{1F300}-\\u{1FAFF}]",
+      flags: "u"
+    },
+    {
+      id: "bureaucratese",
+      reason: "\u043A\u0430\u043D\u0446\u0435\u043B\u044F\u0440\u0438\u0442",
+      pattern: "\u0432 \u0440\u0430\u043C\u043A\u0430\u0445 (\u0434\u0430\u043D\u043D\\p{L}+|\u044D[\u0442\u0442]\\p{L}+) \u0437\u0430\u0434\u0430\u0447\\p{L}*|\u0434\u0430\u043D\u043D\\p{L}+ \u0444\u0443\u043D\u043A\u0446\u0438\u043E\u043D\u0430\u043B\\p{L}*|\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u043E\u0442\u043C\u0435\u0442\u0438\u0442\u044C|\u043D\u0435\u043E\u0431\u0445\u043E\u0434\u0438\u043C\u043E (\u043E\u0431\u0435\u0441\u043F\u0435\u0447\u0438\u0442\u044C|\u0440\u0435\u0430\u043B\u0438\u0437\u043E\u0432\u0430\u0442\u044C|\u043E\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0438\u0442\u044C)|\u043E\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0438\u0442\u044C|\u0432 \u0446\u0435\u043B\u044F\u0445|\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043D\u0435\u043E\u0431\u0445\u043E\u0434\u0438\u043C\u044B\u043C|\u0432 \u043D\u0430\u0441\u0442\u043E\u044F\u0449\u0435\u0435 \u0432\u0440\u0435\u043C\u044F",
+      flags: "iu"
+    },
+    {
+      id: "as-a-user",
+      reason: "\u0448\u0430\u0431\u043B\u043E\u043D \xAB\u041A\u0430\u043A <\u0440\u043E\u043B\u044C>, \u044F \u0445\u043E\u0447\u0443 \u2026 \u0447\u0442\u043E\u0431\u044B \u2026\xBB",
+      pattern: "^[ \\t]*(\u041A\u0430\u043A|As an?)\\s[^,\\n]{2,60},\\s*(\u044F \u0445\u043E\u0447\u0443|I want)",
+      flags: "imu"
+    },
+    {
+      id: "bullet-wall",
+      reason: "\u0441\u0442\u0435\u043D\u0430 \u0438\u0437 \u0431\u0443\u043B\u043B\u0435\u0442\u043E\u0432 (6 \u0438 \u0431\u043E\u043B\u044C\u0448\u0435 \u043F\u043E\u0434\u0440\u044F\u0434)",
+      pattern: "(?:^[ \\t]*[-*\u2022][ \\t].*(?:\\n|$)){6,}",
+      flags: "mu"
+    }
+  ]
+};
+
+// ../scripts/lib/voice-rules.mjs
+var RULES = voice_rules_default;
+var QUOTE_MAX = 60;
+function compileOne(level, rule) {
+  try {
+    return { id: rule.id, reason: rule.reason, level, re: new RegExp(rule.pattern, rule.flags ?? "u") };
+  } catch (error2) {
+    throw new Error(`voice rule "${rule.id}" does not compile: ${error2.message}`);
+  }
+}
+function compileRules(source = RULES) {
+  return {
+    fields: [...source.fields ?? []],
+    hard: (source.hard ?? []).map((r) => compileOne("hard", r)),
+    soft: (source.soft ?? []).map((r) => compileOne("soft", r))
+  };
+}
+var defaultCompiled;
+function compiled(c) {
+  return c ?? (defaultCompiled ??= compileRules());
+}
+function quoteOf(match) {
+  const text = match.replace(/\s+/g, " ").trim();
+  return text.length > QUOTE_MAX ? `${text.slice(0, QUOTE_MAX - 1)}\u2026` : text;
+}
+function checkText(text, c) {
+  if (typeof text !== "string" || text === "") return [];
+  const rules = compiled(c);
+  const findings = [];
+  for (const rule of [...rules.hard, ...rules.soft]) {
+    const global = new RegExp(rule.re.source, rule.re.flags.includes("g") ? rule.re.flags : `${rule.re.flags}g`);
+    for (const m of text.matchAll(global)) {
+      findings.push({ level: rule.level, id: rule.id, reason: rule.reason, quote: quoteOf(m[0]), field: "" });
+      if (m[0] === "") break;
+    }
+  }
+  return findings;
+}
+function checkArgs(args, c) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return [];
+  const rules = compiled(c);
+  const out = [];
+  const visit = (obj, prefix) => {
+    for (const field of rules.fields) {
+      for (const f of checkText(obj[field], rules)) out.push({ ...f, field: `${prefix}${field}` });
+    }
+  };
+  visit(args, "");
+  if (Array.isArray(args.items)) {
+    args.items.forEach((item, i) => {
+      if (item && typeof item === "object" && !Array.isArray(item)) visit(item, `items[${i}].`);
+    });
+  }
+  return out;
+}
+function formatReason(findings) {
+  const lines = findings.map((f) => `\u2014 ${f.reason}${f.field ? ` (${f.field})` : ""}: \xAB${f.quote}\xBB`);
+  const hard = findings.some((f) => f.level === "hard");
+  const head = hard ? "\u0422\u0435\u043A\u0441\u0442 \u0432\u044B\u0434\u0430\u0451\u0442, \u0447\u0442\u043E \u0435\u0433\u043E \u043F\u0438\u0441\u0430\u043B \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442. \u0422\u0430\u043A \u0432 Taiga \u043D\u0435 \u043F\u0438\u0448\u0443:" : "\u0422\u0435\u043A\u0441\u0442 \u043D\u0435 \u043F\u043E\u0445\u043E\u0436 \u043D\u0430 \u043C\u043E\u0439. \u041F\u0440\u043E\u0432\u0435\u0440\u044C \u0438 \u043F\u0435\u0440\u0435\u043F\u0438\u0448\u0438 \u0438\u043B\u0438 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438:";
+  return [head, ...lines].join("\n");
+}
+
+// src/voice-guard.ts
+function withVoiceGuard(mode, handler) {
+  if (mode === "off") return handler;
+  return async (args, extra2) => {
+    const findings = checkArgs(args);
+    if (findings.length === 0) return handler(args, extra2);
+    const reason = formatReason(findings);
+    if (mode === "block") {
+      return { isError: true, content: [{ type: "text", text: reason }] };
+    }
+    const result = await handler(args, extra2);
+    return { ...result, content: [...result.content, { type: "text", text: `Voice check:
+${reason}` }] };
+  };
+}
+
+// src/registry.ts
+var ANNOTATIONS = {
+  read: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  create: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  update: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  destructive: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+};
+var REQUIRES_USER_INTERACTION = "anthropic/requiresUserInteraction";
+function defineTool(server, ctx, spec, handler) {
+  if (ctx.options.readOnly && spec.kind !== "read") return;
+  const guarded = spec.kind === "read" ? handler : withVoiceGuard(
+    ctx.options.voiceGuard,
+    handler
+  );
+  server.registerTool(
+    spec.name,
+    {
+      description: spec.description,
+      inputSchema: spec.input,
+      annotations: ANNOTATIONS[spec.kind],
+      ...spec.confirm ? { _meta: { [REQUIRES_USER_INTERACTION]: true } } : {}
+    },
+    guarded
+  );
+}
+
 // src/tools/whoami.ts
 function registerWhoamiTool(server, ctx) {
-  server.tool(
-    "taiga_whoami",
-    "Show the authenticated Taiga user and the projects they can access. Use this to verify the connection and to discover project slugs.",
-    {},
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_whoami",
+      description: "Show the authenticated Taiga user and the projects they can access. Use this to verify the connection and to discover project slugs.",
+      input: {},
+      kind: "read"
+    },
     guard(async () => {
       const me = await ctx.client.get("/users/me");
       const projects = await ctx.client.list("/projects", {
@@ -22026,15 +22222,26 @@ var SLIM = {
     is_epics_activated: plain("is_epics_activated")
   }
 };
+var DETAIL_ONLY = {
+  userstory: /* @__PURE__ */ new Set(["description", "description_html", "blocked_note_html", "neighbors"]),
+  task: /* @__PURE__ */ new Set(["description", "description_html", "blocked_note_html", "neighbors"]),
+  issue: /* @__PURE__ */ new Set(["description", "description_html", "blocked_note_html", "neighbors", "generated_user_stories"]),
+  epic: /* @__PURE__ */ new Set(["description", "description_html"])
+};
 function project(resource, raw, fields = "slim", labels = {}) {
   if (fields === "full") return raw;
   const shape = SLIM[resource];
   if (Array.isArray(fields)) {
     return Object.fromEntries(
       fields.map((field) => {
-        const get = shape[field];
-        if (get) return [field, get(raw, labels)];
-        if (field in raw) return [field, raw[field] ?? null];
+        if (Object.hasOwn(shape, field)) return [field, shape[field](raw, labels)];
+        if (Object.hasOwn(raw, field)) return [field, raw[field] ?? null];
+        if (DETAIL_ONLY[resource]?.has(field)) {
+          throw new TaigaError(
+            `"${field}" exists on a Taiga ${resource} but this endpoint does not return it.`,
+            { hint: `Read the item with taiga_${resource}_get to get "${field}".` }
+          );
+        }
         throw new TaigaError(`"${field}" is not a field of a Taiga ${resource}.`, {
           hint: `Known fields: ${Object.keys(shape).join(", ")}. Use fields: "full" to see everything.`
         });
@@ -22050,12 +22257,16 @@ function projectMany(resource, rows, fields = "slim", labels = {}) {
 }
 
 // src/tools/project.ts
-var projectRef = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug; defaults to TAIGA_PROJECT.");
 function registerProjectTools(server, ctx) {
-  server.tool(
-    "taiga_project_list",
-    "List the Taiga projects the current user is a member of.",
-    { fields: FIELDS_SCHEMA },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_project_list",
+      description: "List the Taiga projects the current user is a member of. If TAIGA_PROJECT is set, every other tool defaults to it.",
+      input: { fields: FIELDS_SCHEMA },
+      kind: "read"
+    },
     guard(async ({ fields }) => {
       const me = await ctx.client.get("/users/me");
       const result = await ctx.client.list("/projects", {
@@ -22068,20 +22279,30 @@ function registerProjectTools(server, ctx) {
       });
     })
   );
-  server.tool(
-    "taiga_project_get",
-    "Get one Taiga project by id or slug.",
-    { project: projectRef, fields: FIELDS_SCHEMA },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_project_get",
+      description: "Get one Taiga project by id or slug.",
+      input: { project: PROJECT_SCHEMA, fields: FIELDS_SCHEMA },
+      kind: "read"
+    },
     guard(async ({ project: ref, fields }) => {
       const id = await ctx.cache.resolveProject(ref);
       const raw = await ctx.client.get(`/projects/${id}`);
       return ok(project("project", raw, asFieldMode(fields)));
     })
   );
-  server.tool(
-    "taiga_project_schema",
-    "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
-    { project: projectRef },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_project_schema",
+      description: "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
+      input: { project: PROJECT_SCHEMA },
+      kind: "read"
+    },
     guard(async ({ project: ref }) => {
       const id = await ctx.cache.resolveProject(ref);
       return ok(await ctx.cache.schema(id));
@@ -22139,7 +22360,9 @@ var USER_STORY = {
     tags: tagsField,
     due_date: dueDateUpdate,
     is_blocked: external_exports.boolean().optional(),
-    blocked_note: external_exports.string().optional()
+    blocked_note: external_exports.string().optional(),
+    backlog_order: external_exports.number().optional().describe("Position in the backlog; lower comes first."),
+    assigned_users: external_exports.array(external_exports.string()).optional().describe("Full names of everyone assigned; replaces the list, [] clears it.")
   },
   lookups: [
     { field: "status", kind: "userstory-status" },
@@ -22322,7 +22545,6 @@ var RESOURCES = [
 ];
 
 // src/tools/crud.ts
-var projectRef2 = external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug; defaults to TAIGA_PROJECT.");
 async function buildLabels(ctx, def, projectId) {
   const wanted = def.labels ?? [];
   const resolved = await Promise.all(
@@ -22435,15 +22657,20 @@ function registerCrudTools(server, ctx, def) {
     ...def.hasRef ? { ref: external_exports.number().optional().describe(`The #number shown in Taiga.`) } : {},
     ...def.name === "wiki" || def.name === "sprint" ? { slug: external_exports.string().optional().describe("Slug.") } : {}
   };
-  server.tool(
-    `taiga_${def.name}_list`,
-    `List ${def.label} items in a Taiga project. Returns a slim projection by default.`,
+  defineTool(
+    server,
+    ctx,
     {
-      project: projectRef2,
-      ...def.listFilters,
-      limit: external_exports.number().max(200).optional().describe("Max items to return. Default 50."),
-      page: external_exports.number().optional().describe("1-based page number."),
-      fields: FIELDS_SCHEMA
+      name: `taiga_${def.name}_list`,
+      description: `List ${def.label} items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.`,
+      input: {
+        project: PROJECT_SCHEMA,
+        ...def.listFilters,
+        limit: external_exports.number().max(200).optional().describe("Max items to return. Default 50."),
+        page: external_exports.number().optional().describe("1-based page number."),
+        fields: FIELDS_SCHEMA
+      },
+      kind: "read"
     },
     guard(async (args) => {
       const { project: ref, fields, limit, page, ...filters } = args;
@@ -22486,10 +22713,15 @@ function registerCrudTools(server, ctx, def) {
       });
     })
   );
-  server.tool(
-    `taiga_${def.name}_get`,
-    `Get one ${def.label} by its #ref number or internal id.`,
-    { project: projectRef2, ...idArgs, fields: FIELDS_SCHEMA },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: `taiga_${def.name}_get`,
+      description: `Get one ${def.label} by its #ref number or internal id.`,
+      input: { project: PROJECT_SCHEMA, ...idArgs, fields: FIELDS_SCHEMA },
+      kind: "read"
+    },
     guard(async (args) => {
       const a = args;
       const projectId = await ctx.cache.resolveProject(a.project);
@@ -22499,10 +22731,15 @@ function registerCrudTools(server, ctx, def) {
       return ok(project(def.name, raw, asFieldMode(a.fields), labels));
     })
   );
-  server.tool(
-    `taiga_${def.name}_create`,
-    `Create a ${def.label}. Status and assignee are given by name, not by id.`,
-    { project: projectRef2, ...def.createFields },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: `taiga_${def.name}_create`,
+      description: `Create a ${def.label}. Status and assignee are given by name, not by id.`,
+      input: { project: PROJECT_SCHEMA, ...def.createFields },
+      kind: "create"
+    },
     guard(async (args) => {
       const { project: ref, sprint, points, epic, ...rest } = args;
       const projectId = await ctx.cache.resolveProject(ref);
@@ -22525,17 +22762,22 @@ function registerCrudTools(server, ctx, def) {
       return ok(project(def.name, created, "slim", labels));
     })
   );
-  server.tool(
-    `taiga_${def.name}_update`,
-    `Update a ${def.label}. Only the fields you pass are changed; the current version is read and sent automatically.` + (def.supportsAppend ? ` Use append_description and add_tags to add without overwriting.` : ""),
+  defineTool(
+    server,
+    ctx,
     {
-      project: projectRef2,
-      ...idArgs,
-      ...def.updateFields,
-      ...def.supportsAppend ? {
-        append_description: external_exports.string().optional().describe("Text to append to the existing description."),
-        add_tags: external_exports.array(external_exports.string()).optional().describe("Tags to add, keeping the existing ones.")
-      } : {}
+      name: `taiga_${def.name}_update`,
+      description: `Update a ${def.label}. Only the fields you pass are changed; the current version is read and sent automatically.` + (def.supportsAppend ? ` Use append_description and add_tags to add without overwriting.` : ""),
+      input: {
+        project: PROJECT_SCHEMA,
+        ...idArgs,
+        ...def.updateFields,
+        ...def.supportsAppend ? {
+          append_description: external_exports.string().optional().describe("Text to append to the existing description."),
+          add_tags: external_exports.array(external_exports.string()).optional().describe("Tags to add, keeping the existing ones.")
+        } : {}
+      },
+      kind: "update"
     },
     guard(async (args) => {
       const a = { ...args };
@@ -22546,6 +22788,7 @@ function registerCrudTools(server, ctx, def) {
       const sprint = a.sprint;
       const points = a.points;
       const epic = a.epic;
+      const assignedUsers = a.assigned_users;
       for (const key of [
         "project",
         "id",
@@ -22555,7 +22798,8 @@ function registerCrudTools(server, ctx, def) {
         "add_tags",
         "sprint",
         "points",
-        "epic"
+        "epic",
+        "assigned_users"
       ]) {
         delete a[key];
       }
@@ -22568,6 +22812,11 @@ function registerCrudTools(server, ctx, def) {
       }
       if (points !== void 0) {
         changes.points = await resolvePoints(ctx, projectId, points);
+      }
+      if (assignedUsers !== void 0) {
+        changes.assigned_users = await Promise.all(
+          assignedUsers.map((name) => ctx.cache.resolveLookup(projectId, "member", name))
+        );
       }
       if (appendText !== void 0 || addTags !== void 0) {
         const current = await ctx.client.get(
@@ -22601,13 +22850,19 @@ ${appendText}` : appendText;
       return ok(project(def.name, updated, "slim", labels));
     })
   );
-  server.tool(
-    `taiga_${def.name}_delete`,
-    `Permanently delete a ${def.label}. Requires confirm: true. Ask the user before calling this.`,
+  defineTool(
+    server,
+    ctx,
     {
-      project: projectRef2,
-      ...idArgs,
-      confirm: external_exports.boolean().optional().describe("Must be true. Guards against accidental deletion.")
+      name: `taiga_${def.name}_delete`,
+      description: `Permanently delete a ${def.label}. Requires confirm: true. Ask the user before calling this.`,
+      input: {
+        project: PROJECT_SCHEMA,
+        ...idArgs,
+        confirm: external_exports.boolean().optional().describe("Must be true. Guards against accidental deletion.")
+      },
+      kind: "destructive",
+      confirm: true
     },
     guard(async (args) => {
       const a = args;
@@ -22642,15 +22897,20 @@ async function locateItem(ctx, resource, projectId, id, ref) {
 }
 function registerCommentTools(server, ctx) {
   const common2 = {
-    project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+    project: PROJECT_SCHEMA,
     resource: resourceArg,
     id: external_exports.number().optional().describe("Internal item id."),
     ref: external_exports.number().optional().describe("The #number shown in Taiga.")
   };
-  server.tool(
-    "taiga_comment_list",
-    "List the comments on a user story, task, issue or epic, oldest first.",
-    common2,
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_comment_list",
+      description: "List the comments on a user story, task, issue or epic, oldest first.",
+      input: common2,
+      kind: "read"
+    },
     guard(async (args) => {
       const a = args;
       const resource = a.resource;
@@ -22663,7 +22923,8 @@ function registerCommentTools(server, ctx) {
         a.ref
       );
       const history = await ctx.client.get(
-        `/history/${COMMENTABLE[resource].history}/${id}`
+        `/history/${COMMENTABLE[resource].history}/${id}`,
+        { page_size: 1e3 }
       );
       const items = history.filter(
         (entry) => typeof entry.comment === "string" && entry.comment !== "" && entry.delete_comment_date == null
@@ -22675,10 +22936,15 @@ function registerCommentTools(server, ctx) {
       return ok({ total: items.length, items });
     })
   );
-  server.tool(
-    "taiga_comment_add",
-    "Add a comment to a user story, task, issue or epic.",
-    { ...common2, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_comment_add",
+      description: "Add a comment to a user story, task, issue or epic.",
+      input: { ...common2, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
+      kind: "create"
+    },
     guard(async (args) => {
       const a = args;
       const resource = a.resource;
@@ -22700,12 +22966,17 @@ function registerCommentTools(server, ctx) {
 
 // src/tools/search.ts
 function registerSearchTool(server, ctx) {
-  server.tool(
-    "taiga_search",
-    "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref.",
+  defineTool(
+    server,
+    ctx,
     {
-      project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
-      text: external_exports.string().min(1).describe("Search query.")
+      name: "taiga_search",
+      description: "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list.",
+      input: {
+        project: PROJECT_SCHEMA,
+        text: external_exports.string().min(1).describe("Search query.")
+      },
+      kind: "read"
     },
     guard(async (args) => {
       const a = args;
@@ -22766,15 +23037,21 @@ async function buildLabels2(ctx, def, projectId) {
   return Object.fromEntries(resolved);
 }
 function registerBulkTool(server, ctx) {
-  server.tool(
-    "taiga_bulk_create",
-    `Create up to ${MAX_ITEMS} user stories, tasks or issues in one call. Each item is created independently: a failure in one does not stop the rest. Show the user the plan before calling this.`,
+  defineTool(
+    server,
+    ctx,
     {
-      project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
-      resource: external_exports.enum(["userstory", "task", "issue"]),
-      items: external_exports.array(external_exports.record(external_exports.unknown())).min(1).describe(
-        "Items to create. Each takes the same fields as the matching taiga_<resource>_create tool, e.g. {subject, description, status, tags}."
-      )
+      name: "taiga_bulk_create",
+      description: `Create up to ${MAX_ITEMS} user stories, tasks or issues in one call. Each item is created independently: a failure in one does not stop the rest. Show the user the plan before calling this.`,
+      input: {
+        project: PROJECT_SCHEMA,
+        resource: external_exports.enum(["userstory", "task", "issue"]),
+        items: external_exports.array(external_exports.record(external_exports.unknown())).min(1).describe(
+          "Items to create. Each takes the same fields as the matching taiga_<resource>_create tool, e.g. {subject, description, status, tags}."
+        )
+      },
+      kind: "create",
+      confirm: true
     },
     guard(async (args) => {
       const a = args;
@@ -22878,12 +23155,17 @@ function registerBulkTool(server, ctx) {
 
 // src/tools/stats.ts
 function registerStatsTool(server, ctx) {
-  server.tool(
-    "taiga_stats",
-    "Progress statistics. With `sprint` it returns that sprint's points, completed work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+  defineTool(
+    server,
+    ctx,
     {
-      project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
-      sprint: external_exports.string().optional().describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats.")
+      name: "taiga_stats",
+      description: "Progress statistics. With `sprint` it returns that sprint's points, completed work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+      input: {
+        project: PROJECT_SCHEMA,
+        sprint: external_exports.string().optional().describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats.")
+      },
+      kind: "read"
     },
     guard(async (args) => {
       const a = args;
@@ -22942,7 +23224,7 @@ function registerStatsTool(server, ctx) {
 
 // src/tools/attachment.ts
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join as join2 } from "node:path";
 var MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 function checkUploadSize(size, filePath) {
   if (size > MAX_UPLOAD_BYTES) {
@@ -22964,7 +23246,7 @@ var ATTACHABLE = {
   epic: { path: "/epics/attachments", resolverKey: "epic" }
 };
 var common = {
-  project: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("Project id or slug. Defaults to TAIGA_PROJECT."),
+  project: PROJECT_SCHEMA,
   resource: external_exports.enum(["userstory", "task", "issue", "epic"]).describe("Which kind of item the attachment belongs to."),
   id: external_exports.number().optional().describe("Internal item id."),
   ref: external_exports.number().optional().describe("The #number shown in Taiga.")
@@ -22985,10 +23267,15 @@ function slim(row) {
   };
 }
 function registerAttachmentTools(server, ctx) {
-  server.tool(
-    "taiga_attachment_list",
-    "List the files attached to a user story, task, issue or epic.",
-    common,
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_attachment_list",
+      description: "List the files attached to a user story, task, issue or epic.",
+      input: common,
+      kind: "read"
+    },
     guard(async (args) => {
       const a = args;
       const resource = a.resource;
@@ -23007,10 +23294,16 @@ function registerAttachmentTools(server, ctx) {
       return ok({ total: result.total, items: result.items.map(slim) });
     })
   );
-  server.tool(
-    "taiga_attachment_upload",
-    "Attach a local file to a user story, task, issue or epic.",
-    { ...common, file_path: external_exports.string().describe("Absolute path to the file to upload.") },
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_attachment_upload",
+      description: "Attach a local file to a user story, task, issue or epic.",
+      input: { ...common, file_path: external_exports.string().describe("Absolute path to the file to upload.") },
+      kind: "create",
+      confirm: true
+    },
     guard(async (args) => {
       const a = args;
       const resource = a.resource;
@@ -23047,13 +23340,18 @@ function registerAttachmentTools(server, ctx) {
       return ok(slim(created));
     })
   );
-  server.tool(
-    "taiga_attachment_download",
-    "Download an attachment to a local directory. Get the id from taiga_attachment_list.",
+  defineTool(
+    server,
+    ctx,
     {
-      attachment_id: external_exports.number().describe("Attachment id."),
-      resource: common.resource,
-      target_dir: external_exports.string().describe("Absolute path to the directory to save into.")
+      name: "taiga_attachment_download",
+      description: "Download an attachment to a local directory. Get the id from taiga_attachment_list.",
+      input: {
+        attachment_id: external_exports.number().describe("Attachment id."),
+        resource: common.resource,
+        target_dir: external_exports.string().describe("Absolute path to the directory to save into.")
+      },
+      kind: "read"
     },
     guard(async (args) => {
       const a = args;
@@ -23069,7 +23367,7 @@ function registerAttachmentTools(server, ctx) {
           { hint: "Download it from the Taiga web interface instead." }
         );
       }
-      const savedTo = join(a.target_dir, safeName);
+      const savedTo = join2(a.target_dir, safeName);
       try {
         await writeFile(savedTo, data, { flag: "wx" });
       } catch (error2) {
@@ -23087,7 +23385,7 @@ function registerAttachmentTools(server, ctx) {
 
 // src/index.ts
 function createServer(ctx = createContext()) {
-  const server = new McpServer({ name: "taiga", version: "0.1.0" });
+  const server = new McpServer({ name: "taiga", version: "0.2.0" });
   registerWhoamiTool(server, ctx);
   registerProjectTools(server, ctx);
   for (const def of RESOURCES) registerCrudTools(server, ctx, def);
