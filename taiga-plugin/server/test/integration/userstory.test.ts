@@ -49,7 +49,7 @@ describe("user story CRUD", () => {
     const first = json.items[0];
     expect(Object.keys(first).sort()).toEqual(
       [
-        "assigned_to", "is_blocked", "is_closed", "points", "ref",
+        "assigned_to", "assigned_users", "is_blocked", "is_closed", "points", "ref",
         "sprint", "status", "subject", "tags", "total_comments",
       ].sort(),
     );
@@ -303,12 +303,27 @@ describe("user story CRUD", () => {
 
     const read = await call("taiga_userstory_get", { ref, fields: ["backlog_order", "assigned_users"] });
     expect(read.json.backlog_order).toBe(1);
-    expect(read.json.assigned_users).toEqual([me.json.id]);
+    expect(read.json.assigned_users).toEqual([me.json.full_name]);
 
     const cleared = await call("taiga_userstory_update", { ref, assigned_users: [] });
     expect(cleared.isError, cleared.raw).toBe(false);
     const again = await call("taiga_userstory_get", { ref, fields: ["assigned_users"] });
     expect(again.json.assigned_users).toEqual([]);
+  });
+
+  it("de-duplicates a repeated co-assignee name into one id", async () => {
+    const me = await call("taiga_whoami");
+    const created = await call("taiga_userstory_create", { subject: "Repeated owner test" });
+    const ref = track(created.json.ref);
+
+    const updated = await call("taiga_userstory_update", {
+      ref,
+      assigned_users: [me.json.full_name, me.json.full_name],
+    });
+    expect(updated.isError, updated.raw).toBe(false);
+
+    const read = await call("taiga_userstory_get", { ref, fields: ["assigned_users"] });
+    expect(read.json.assigned_users).toEqual([me.json.full_name]);
   });
 
   it("rejects an unknown co-assignee with the member list", async () => {

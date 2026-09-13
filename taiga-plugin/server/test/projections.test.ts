@@ -37,6 +37,7 @@ describe("projections", () => {
       subject: "Authenticate with login and password",
       status: "In progress",
       assigned_to: "Ivan Petrov",
+      assigned_users: [],
       sprint: "Sprint 1",
       points: 5,
       tags: ["auth", "mcp"],
@@ -155,6 +156,7 @@ describe("projections", () => {
     expect(Object.keys(result).sort()).toEqual(
       [
         "assigned_to",
+        "assigned_users",
         "is_blocked",
         "is_closed",
         "points",

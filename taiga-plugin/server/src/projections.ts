@@ -67,6 +67,10 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
     subject: plain("subject"),
     status: named("status_extra_info", "name", "status", "status"),
     assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
+    assigned_users: (raw, labels) =>
+      (Array.isArray(raw.assigned_users) ? raw.assigned_users : []).map(
+        (id) => labels.member?.get(id as number) ?? id,
+      ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
     tags,

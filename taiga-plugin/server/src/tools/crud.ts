@@ -425,10 +425,13 @@ export function registerCrudTools(
       }
       // A list of names, resolved one by one against the member table;
       // the single-assignee path (assigned_to) already goes through resolveFields.
+      // De-duplicated: the same person named twice (or by two spellings that
+      // resolve to the same member) must only send one id to Taiga.
       if (assignedUsers !== undefined) {
-        changes.assigned_users = await Promise.all(
+        const ids = await Promise.all(
           assignedUsers.map((name) => ctx.cache.resolveLookup(projectId, "member", name)),
         );
+        changes.assigned_users = [...new Set(ids)];
       }
 
       if (appendText !== undefined || addTags !== undefined) {

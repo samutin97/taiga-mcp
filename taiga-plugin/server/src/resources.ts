@@ -107,6 +107,8 @@ export const USER_STORY: ResourceDef = {
     { field: "status", kind: "userstory-status" },
     { field: "assigned_to", kind: "member" },
   ],
+  // Taiga returns assigned_users as bare numeric ids with no *_extra_info; without this map the tool shows numbers to the model.
+  labels: [{ map: "member", kind: "member" }],
   supportsAppend: true,
 };
 
