@@ -21520,7 +21520,7 @@ function loadConfig(env = process.env) {
     throw new TaigaError(
       `The Taiga plugin is not configured: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set.`,
       {
-        hint: "Run /plugin, open the taiga plugin and fill in its settings (address, login, password), or set TAIGA_URL, TAIGA_USERNAME and TAIGA_PASSWORD in the environment. TAIGA_URL is the instance address without /api/v1."
+        hint: "Set the plugin settings in your client (Claude Code: /plugin, open the taiga plugin and fill in address, login, password), or set TAIGA_URL, TAIGA_USERNAME and TAIGA_PASSWORD in the environment. TAIGA_URL is the instance address without /api/v1."
       }
     );
   }
