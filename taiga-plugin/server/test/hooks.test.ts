@@ -2,16 +2,30 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { startClient } from "./helpers/mcp-client.js";
+import { RULES } from "../../scripts/lib/voice-rules.mjs";
 
 const ROOT = join(import.meta.dirname, "../..");
 const hooks = JSON.parse(readFileSync(join(ROOT, "hooks/hooks.json"), "utf8"));
 const PREFIX = "mcp__plugin_taiga_taiga__";
 
-const TEXT_WRITERS = [
-  ...["userstory", "task", "issue", "epic", "wiki"].flatMap((r) => [`taiga_${r}_create`, `taiga_${r}_update`]),
-  "taiga_comment_add",
-  "taiga_bulk_create",
-].sort();
+/**
+ * A tool needs the voice gate when it writes (not readOnlyHint) and its
+ * top-level input carries at least one text field the voice rules check
+ * (scripts/voice-rules.json's `fields`). `taiga_bulk_create` is the one
+ * declared exception: its text fields live inside each `items[]` element,
+ * not as top-level schema properties, so this shape-based derivation can't
+ * see them — the hook still has to cover it.
+ */
+function derivedTextWriters(tools: { name: string; annotations?: { readOnlyHint?: boolean }; inputSchema: unknown }[]): string[] {
+  const derived = tools
+    .filter((t) => t.annotations?.readOnlyHint !== true)
+    .filter((t) => {
+      const props = Object.keys((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {});
+      return props.some((p) => RULES.fields.includes(p));
+    })
+    .map((t) => t.name);
+  return [...new Set([...derived, "taiga_bulk_create"])].sort();
+}
 
 function matched(matcher: string, names: string[]) {
   const re = new RegExp(`^(?:${matcher})$`);
@@ -30,11 +44,12 @@ describe("hooks.json", () => {
     }
   });
 
-  it("aims the voice gate at exactly the twelve text-writing tools", async () => {
+  it("aims the voice gate at exactly the text-writing tools derived from the schemas", async () => {
     const { tools } = await (await startClient()).listTools();
     const names = tools.map((t) => t.name);
+    const expected = derivedTextWriters(tools);
     const [voice, upload] = hooks.hooks.PreToolUse;
-    expect(matched(voice.matcher, names)).toEqual(TEXT_WRITERS);
+    expect(matched(voice.matcher, names)).toEqual(expected);
     expect(matched(upload.matcher, names)).toEqual(["taiga_attachment_upload"]);
     expect(matched(hooks.hooks.PostToolUse[0].matcher, names)).toHaveLength(42);
   });
