@@ -41,6 +41,15 @@ test("soft: emoji, bureaucratese, as-a-user, bullet wall", () => {
   assert.equal(checkText(wall.split("\n").slice(0, 5).join("\n")).length, 0);
 });
 
+test("soft: rubrics prefixed with a list marker or a quote, and the widened emoji class", () => {
+  assert.deepEqual(ids(checkText("- Контекст: x")), ["heading-label"]);
+  assert.deepEqual(ids(checkText("1. Задача: y")), ["heading-label"]);
+  assert.deepEqual(ids(checkText("> Контекст: z")), ["heading-label"]);
+  assert.deepEqual(ids(checkText("- Как менеджер, я хочу видеть отчёт")), ["as-a-user"]);
+  assert.deepEqual(ids(checkText("✨ готово")), ["emoji"]);
+  assert.equal(checkText("Починил логин — теперь «вход» работает, № задачи не менялся…").length, 0, "dash, guillemets, numero sign, ellipsis are not emoji or rubrics");
+});
+
 test("checkArgs walks top-level fields and items[]", () => {
   const findings = checkArgs({
     subject: "Готово ✅",
