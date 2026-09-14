@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "taiga",
+  "version": "0.2.0",
+  "description": "Taiga из Claude Code: спринты, бэклог, issue, отчёты — от вашего имени",
+  "author": { "name": "Dmitry Samutin", "email": "dmitriy.samutin@gmail.com" },
+  "keywords": ["taiga", "project-management", "agile", "scrum"],
+  "userConfig": {
+    "taiga_url": {
+      "type": "string",
+      "title": "Адрес Taiga",
+      "description": "Без /api/v1, например https://taiga.example.com",
+      "required": true
+    },
+    "taiga_username": {
+      "type": "string",
+      "title": "Логин",
+      "description": "Логин или email в Taiga",
+      "required": true
+    },
+    "taiga_password": {
+      "type": "string",
+      "title": "Пароль",
+      "description": "Хранится в защищённом хранилище",
+      "required": true,
+      "sensitive": true
+    },
+    "taiga_project": {
+      "type": "string",
+      "title": "Проект по умолчанию",
+      "description": "id или slug; можно оставить пустым"
+    }
+  },
+  "mcpServers": {
+    "taiga": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/dist/index.js"],
+      "env": {
+        "TAIGA_URL": "${user_config.taiga_url}",
+        "TAIGA_USERNAME": "${user_config.taiga_username}",
+        "TAIGA_PASSWORD": "${user_config.taiga_password}",
+        "TAIGA_PROJECT": "${user_config.taiga_project}"
+      }
+    }
+  }
+}

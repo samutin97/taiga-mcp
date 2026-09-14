@@ -11,3 +11,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 .venv/
+
+
+# результаты прогонов оценок — генерируются локально, не коммитятся
+taiga-plugin/evals/results/

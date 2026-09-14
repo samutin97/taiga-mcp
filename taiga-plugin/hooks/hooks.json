@@ -1,0 +1,27 @@
+{
+  "description": "Taiga: проверка голоса перед записью, граница загрузки файлов, поиск секретов в ответах",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__plugin_taiga_taiga__taiga_(userstory|task|issue|epic|wiki)_(create|update)|mcp__plugin_taiga_taiga__taiga_(comment_add|bulk_create)",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/voice-gate.mjs\"", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_taiga_taiga__taiga_attachment_upload",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/upload-boundary.mjs\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__plugin_taiga_taiga__.*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/secret-scan.mjs\"", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}
