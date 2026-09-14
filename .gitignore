@@ -13,5 +13,5 @@ __pycache__/
 .venv/
 
 
-# claude plugin eval run output — regenerated locally, never committed
+# результаты прогонов оценок — генерируются локально, не коммитятся
 taiga-plugin/evals/results/
