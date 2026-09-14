@@ -4,7 +4,7 @@
 //     stories: [...], tasks: [...], sprints: [...], stats?: { speed } }
 // Output: markdown report grouped by rule (default) or JSON (--json).
 //
-// Note (spec deviation, decision): the original spec's rule
+// Note (deviation from the original spec): its rule
 // "several assignees in comments" is not derivable from this data (comments
 // are not exported) and is replaced by `unowned-in-progress`.
 import { readFileSync } from "node:fs";
