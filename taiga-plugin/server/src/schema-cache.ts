@@ -1,5 +1,6 @@
 import type { TaigaClient } from "./client.js";
 import { TaigaError } from "./errors.js";
+import { attributeSummaries, type AttrResource } from "./custom-attributes.js";
 
 export type LookupKind =
   | "userstory-status"
@@ -37,11 +38,18 @@ export interface LookupEntry {
   role?: string;
 }
 
+export interface CustomFieldEntry {
+  name: string;
+  type: string;
+}
+
 export interface ProjectSchema {
   id: number;
   slug: string;
   name: string;
   lookups: Record<LookupKind, LookupEntry[]>;
+  /** The four team-convention fields («Оценка», «Блокируется», …) live here, when set up. */
+  customFields: Record<AttrResource, CustomFieldEntry[]>;
 }
 
 interface CacheOptions {
@@ -225,11 +233,18 @@ export class SchemaCache {
     const collected = await Promise.all(
       kinds.map(async (kind) => [kind, await this.entries(projectId, kind)] as const),
     );
+    const resources: AttrResource[] = ["task", "userstory"];
+    const customFields = await Promise.all(
+      resources.map(
+        async (resource) => [resource, await attributeSummaries({ client: this.client }, projectId, resource)] as const,
+      ),
+    );
     return {
       id: project.id,
       slug: project.slug,
       name: project.name,
       lookups: Object.fromEntries(collected) as ProjectSchema["lookups"],
+      customFields: Object.fromEntries(customFields) as ProjectSchema["customFields"],
     };
   }
 }

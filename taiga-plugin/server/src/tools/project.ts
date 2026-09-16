@@ -54,6 +54,8 @@ export function registerProjectTools(server: McpServer, ctx: ToolContext): void 
       description:
         "List the valid statuses, priorities, severities, issue types, points, roles " +
         "and members of a project. Members include their username and role in the project. " +
+        "Also lists the custom fields defined on tasks and user stories, with their type — " +
+        "use this to check whether a field like «Оценка» is set up before relying on it. " +
         "Use it to show the user what values are allowed; " +
         "you do not need it before writing, because status and person names are " +
         "resolved automatically.",

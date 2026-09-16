@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   attributeIds,
+  attributeSummaries,
   requireAttribute,
   writeAttributes,
   resetAttributeCache,
@@ -61,6 +62,25 @@ describe("кастомные атрибуты", () => {
     const ctx = fakeCtx(routes);
     await attributeIds(ctx as never, 1, "task");
     await attributeIds(ctx as never, 1, "task");
+    const definitionCalls = ctx.client.list.mock.calls.filter(
+      ([path]) => path === "/task-custom-attributes",
+    );
+    expect(definitionCalls).toHaveLength(1);
+  });
+
+  it("отдаёт имя и тип поля", async () => {
+    const ctx = fakeCtx(routes);
+    const summaries = await attributeSummaries(ctx as never, 1, "task");
+    expect(summaries).toEqual([
+      { name: "Оценка", type: "number" },
+      { name: "Блокируется", type: "text" },
+    ]);
+  });
+
+  it("attributeSummaries переиспользует кеш, заполненный attributeIds — без второго запроса", async () => {
+    const ctx = fakeCtx(routes);
+    await attributeIds(ctx as never, 1, "task");
+    await attributeSummaries(ctx as never, 1, "task");
     const definitionCalls = ctx.client.list.mock.calls.filter(
       ([path]) => path === "/task-custom-attributes",
     );

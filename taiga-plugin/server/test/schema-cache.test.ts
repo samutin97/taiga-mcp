@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SchemaCache } from "../src/schema-cache.js";
 import { TaigaError } from "../src/errors.js";
+import { resetAttributeCache } from "../src/custom-attributes.js";
 
 function fakeClient(routes: Record<string, unknown>) {
   return {
@@ -51,6 +52,13 @@ const lookupRoutes = {
 };
 
 describe("SchemaCache", () => {
+  // custom-attributes.ts caches definitions in a module-level map keyed
+  // `${projectId}:${resource}` — every test below uses project 1, so a
+  // fake-client route set by one test must not answer a later test's fetch.
+  beforeEach(() => {
+    resetAttributeCache();
+  });
+
   it("resolves a status name to its numeric id", async () => {
     const client = fakeClient(lookupRoutes);
     const cache = new SchemaCache(client as never, {});
@@ -230,5 +238,43 @@ describe("SchemaCache", () => {
     expect(schema.lookups.member).toContainEqual(
       expect.objectContaining({ id: 91, name: "Ivan Petrov", username: "ivan", role: "Front" }),
     );
+  });
+
+  it("показывает кастомные поля задач и историй в схеме проекта", async () => {
+    const client = fakeClient({
+      ...lookupRoutes,
+      "/task-custom-attributes": [
+        { id: 9, name: "Оценка", type: "number" },
+        { id: 11, name: "Блокируется", type: "text" },
+      ],
+      "/userstory-custom-attributes": [{ id: 15, name: "Связано с", type: "text" }],
+    });
+    const cache = new SchemaCache(client as never, {});
+    const schema = await cache.schema(1);
+    expect(schema.customFields.task).toEqual([
+      { name: "Оценка", type: "number" },
+      { name: "Блокируется", type: "text" },
+    ]);
+    expect(schema.customFields.userstory).toEqual([{ name: "Связано с", type: "text" }]);
+  });
+
+  it("не показывает кастомных полей, когда в проекте их не завели", async () => {
+    const cache = new SchemaCache(fakeClient(lookupRoutes) as never, {});
+    const schema = await cache.schema(1);
+    expect(schema.customFields).toEqual({ task: [], userstory: [] });
+  });
+
+  it("переиспользует кеш определений полей между двумя вызовами schema()", async () => {
+    const client = fakeClient({
+      ...lookupRoutes,
+      "/task-custom-attributes": [{ id: 9, name: "Оценка", type: "number" }],
+    });
+    const cache = new SchemaCache(client as never, {});
+    await cache.schema(1);
+    await cache.schema(1);
+    const definitionCalls = client.list.mock.calls.filter(
+      ([path]) => path === "/task-custom-attributes",
+    );
+    expect(definitionCalls).toHaveLength(1);
   });
 });

@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { startClient } from "../helpers/mcp-client.js";
+import { TaigaAuth } from "../../src/auth.js";
+import { TaigaClient } from "../../src/client.js";
+import type { TaigaConfig } from "../../src/config.js";
+import { resetAttributeCache } from "../../src/custom-attributes.js";
 
 const STAND = "http://localhost:9000";
 
@@ -56,5 +60,49 @@ describe("project tools against the local stand", () => {
   it("never leaks the password", async () => {
     const { raw } = await call("taiga_whoami");
     expect(raw).not.toContain("TaigaLocal2026!");
+  });
+
+  it("taiga_project_schema reports no custom fields when the project has none", async () => {
+    const { json } = await call("taiga_project_schema", { project: "mcp-sandbox" });
+    expect(json.customFields).toEqual({ task: [], userstory: [] });
+  });
+});
+
+function adminClient(): TaigaClient {
+  const config: TaigaConfig = { url: STAND, username: "admin", password: "TaigaLocal2026!" };
+  return new TaigaClient(config, new TaigaAuth(config));
+}
+
+// The sandbox has no custom fields by default — this suite creates one
+// through the raw Taiga API (standing in for Admin → Attributes → Custom
+// fields) and removes it afterwards, so taiga_project_schema's new
+// customFields answer gets exercised against a real field, not a fixture.
+describe("taiga_project_schema и кастомные поля", () => {
+  let attributeId: number | undefined;
+
+  beforeAll(async () => {
+    const client = adminClient();
+    const project = await client.get<{ id: number }>("/projects/by_slug", { slug: "mcp-sandbox" });
+    const attribute = await client.post<{ id: number }>("/task-custom-attributes", {
+      name: "Оценка",
+      project: project.id,
+      type: "number",
+    });
+    attributeId = attribute.id;
+    // attributeIds()/attributeSummaries() cache definitions for a minute —
+    // other suites in this run already primed an empty list for this project.
+    resetAttributeCache();
+  });
+
+  afterAll(async () => {
+    if (attributeId === undefined) return;
+    await adminClient().remove("/task-custom-attributes", attributeId).catch(() => {});
+    resetAttributeCache();
+  });
+
+  it("видит «Оценка» в customFields.task с типом number", async () => {
+    const { json } = await call("taiga_project_schema", { project: "mcp-sandbox" });
+    expect(json.customFields.task).toContainEqual({ name: "Оценка", type: "number" });
+    expect(json.customFields.userstory).toEqual([]);
   });
 });

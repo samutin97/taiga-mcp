@@ -1,7 +1,14 @@
 import type { ToolContext } from "./context.js";
+import type { TaigaClient } from "./client.js";
 import { TaigaError } from "./errors.js";
 
 export type AttrResource = "task" | "userstory";
+
+/** A field's definition as it comes back from the same list request as its id — type included for free. */
+export interface AttrDef {
+  id: number;
+  type: string;
+}
 
 const DEFINITION_PATH: Record<AttrResource, string> = {
   task: "/task-custom-attributes",
@@ -14,7 +21,7 @@ const VALUES_PATH: Record<AttrResource, string> = {
 };
 
 // Keyed `${projectId}:${resource}`, same shape as SchemaCache's lookup cache.
-const cache = new Map<string, { at: number; ids: Map<string, number> }>();
+const cache = new Map<string, { at: number; defs: Map<string, AttrDef> }>();
 const TTL_MS = 60_000;
 
 /** Test-only: a stale entry must not leak from one test into the next. */
@@ -22,21 +29,48 @@ export function resetAttributeCache(): void {
   cache.clear();
 }
 
+/**
+ * Fetches and caches a resource's custom-attribute definitions once per
+ * project — `attributeIds` (ids only, for reading/writing values) and
+ * `attributeSummaries` (names and types, for `taiga_project_schema`) both
+ * read this same cache entry instead of each issuing their own request.
+ */
+async function definitions(
+  ctx: { client: TaigaClient },
+  projectId: number,
+  resource: AttrResource,
+): Promise<Map<string, AttrDef>> {
+  const key = `${projectId}:${resource}`;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.defs;
+  const { items } = await ctx.client.list<Record<string, unknown>>(DEFINITION_PATH[resource], {
+    project: projectId,
+    page_size: 1000,
+  });
+  const defs = new Map(
+    items.map((row) => [String(row.name), { id: row.id as number, type: String(row.type) }]),
+  );
+  cache.set(key, { at: Date.now(), defs });
+  return defs;
+}
+
 export async function attributeIds(
   ctx: ToolContext,
   projectId: number,
   resource: AttrResource,
 ): Promise<Map<string, number>> {
-  const key = `${projectId}:${resource}`;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.ids;
-  const { items } = await ctx.client.list<Record<string, unknown>>(DEFINITION_PATH[resource], {
-    project: projectId,
-    page_size: 1000,
-  });
-  const ids = new Map(items.map((row) => [String(row.name), row.id as number]));
-  cache.set(key, { at: Date.now(), ids });
-  return ids;
+  const defs = await definitions(ctx, projectId, resource);
+  return new Map([...defs].map(([name, def]) => [name, def.id]));
+}
+
+/** Names and types only — no ids — for showing what fields exist, e.g. in `taiga_project_schema`. */
+export async function attributeSummaries(
+  ctx: { client: TaigaClient },
+  projectId: number,
+  resource: AttrResource,
+): Promise<{ name: string; type: string }[]> {
+  const defs = await definitions(ctx, projectId, resource);
+  return [...defs].map(([name, def]) => ({ name, type: def.type }));
 }
 
 /** Значения приходят отдельным объектом со своей версией — в списках их нет. */
