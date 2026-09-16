@@ -5,6 +5,7 @@ import { project, projectMany, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
 import { defineTool } from "../registry.js";
+import { pointsPayload } from "../points.js";
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -184,44 +185,6 @@ async function applyEpicLink(
   await linkStoryToEpic(ctx, epicId, storyId);
 }
 
-/**
- * Resolve a human points value (e.g. "5") to the per-role map Taiga's
- * userstory.points field actually requires.
- *
- * Verified live: Taiga stores points as `{ roleId: pointsEntryId }`, one
- * entry per computable role. Sending a bare string or number — the shape the
- * brief's draft schema implied — crashes the server with an opaque HTTP 500
- * instead of a validation error. The value is written to the project's
- * primary role (lowest `order` among computable roles); Taiga defaults any
- * other computable role to "unestimated" on create and leaves it untouched
- * on update, so a single human value maps onto the per-role model without
- * the caller ever seeing roles.
- *
- * Exported so `taiga_bulk_create` can reuse it: a bare string here is the
- * HTTP 500 described above.
- */
-export async function resolvePoints(
-  ctx: ToolContext,
-  projectId: number,
-  value: string | number,
-): Promise<Record<string, number>> {
-  const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
-  // page_size explicit: Taiga's default page (30) would silently hide a
-  // computable role on a project with more roles than that, and the "primary"
-  // role picked below would then be the wrong one.
-  const roles = await ctx.client.list<{ id: number; order: number; computable: boolean }>(
-    "/roles",
-    { project: projectId, page_size: 1000 },
-  );
-  const primary = roles.items
-    .filter((role) => role.computable)
-    .sort((a, b) => a.order - b.order)[0];
-  if (!primary) {
-    throw new TaigaError("This project has no computable role to hold story points.");
-  }
-  return { [primary.id]: pointsId };
-}
-
 export function registerCrudTools(
   server: McpServer,
   ctx: ToolContext,
@@ -351,7 +314,9 @@ export function registerCrudTools(
         payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
-        payload.points = await resolvePoints(ctx, projectId, points as string | number);
+        payload.points = await pointsPayload(
+          ctx, projectId, points as string | number | Record<string, string | number>,
+        );
       }
       const created = await ctx.client.post<Record<string, unknown>>(def.path, payload);
       // The link needs the story's id, so it can only happen after create
@@ -406,7 +371,7 @@ export function registerCrudTools(
       const appendText = a.append_description as string | undefined;
       const addTags = a.add_tags as string[] | undefined;
       const sprint = a.sprint as string | undefined;
-      const points = a.points as string | number | undefined;
+      const points = a.points as string | number | Record<string, string | number> | undefined;
       const epic = a.epic as string | undefined;
       const assignedUsers = a.assigned_users as string[] | undefined;
       for (const key of [
@@ -425,7 +390,7 @@ export function registerCrudTools(
         changes.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
-        changes.points = await resolvePoints(ctx, projectId, points);
+        changes.points = await pointsPayload(ctx, projectId, points);
       }
       // A list of names, resolved one by one against the member table;
       // the single-assignee path (assigned_to) already goes through resolveFields.

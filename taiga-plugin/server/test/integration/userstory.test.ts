@@ -298,6 +298,16 @@ describe("user story CRUD", () => {
     expect(updated.json.points).toBe(8);
   });
 
+  it("проставляет поинты отдельно по ролям", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Поинты по ролям",
+      points: { Front: "5", Back: "3" },
+    });
+    const ref = track(created.json.ref);
+    const detail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(detail.json.total_points).toBe(8);
+  });
+
   it("reorders the backlog and sets the co-assignee list by name", async () => {
     const me = await call("taiga_whoami");
     const created = await call("taiga_userstory_create", { subject: "Order and owners test" });

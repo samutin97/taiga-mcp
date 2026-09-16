@@ -40,6 +40,15 @@ const assigneeUpdate = z
 
 const dueDateUpdate = z.string().optional().describe('ISO date; "" clears it.');
 
+// Verified live: Taiga stores points as a per-role map, not a scalar —
+// sending a bare value straight through crashes the server. A bare string
+// goes to the project's primary estimation role (lowest `order`); an object
+// keyed by role name estimates each role separately. See pointsPayload.
+const pointsField = z
+  .union([z.string(), z.record(z.string())])
+  .optional()
+  .describe('Поинты: "5" — первой роли, {"Front":"5","Back":"3"} — по ролям.');
+
 export const USER_STORY: ResourceDef = {
   name: "userstory",
   path: "/userstories",
@@ -64,16 +73,7 @@ export const USER_STORY: ResourceDef = {
     status: z.string().optional().describe("Status name; defaults to the project's first status."),
     assigned_to: z.string().optional().describe("Assignee full name."),
     sprint: z.string().optional().describe("Sprint (milestone) name."),
-    // Verified live: Taiga stores points as a per-role map, not a scalar —
-    // sending this value straight through crashes the server. The factory
-    // resolves it to the project's primary estimation role; see resolvePoints.
-    points: z
-      .string()
-      .optional()
-      .describe(
-        "Story points value, e.g. '5'. Applied to the project's primary " +
-          "estimation role; other roles are left unestimated.",
-      ),
+    points: pointsField,
     epic: z.string().optional()
       .describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
@@ -85,13 +85,7 @@ export const USER_STORY: ResourceDef = {
     status: z.string().optional(),
     assigned_to: assigneeUpdate,
     sprint: z.string().optional().describe('Sprint name; "" moves to backlog.'),
-    points: z
-      .string()
-      .optional()
-      .describe(
-        "Story points value, e.g. '5'. Applied to the project's primary " +
-          "estimation role; other roles keep their current estimate.",
-      ),
+    points: pointsField,
     epic: z.string().optional()
       .describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,

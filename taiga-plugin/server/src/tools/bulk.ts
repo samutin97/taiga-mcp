@@ -4,8 +4,9 @@ import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
-import { resolveEpic, linkStoryToEpic, resolveSprint, resolvePoints } from "./crud.js";
+import { resolveEpic, linkStoryToEpic, resolveSprint } from "./crud.js";
 import { defineTool } from "../registry.js";
+import { pointsPayload } from "../points.js";
 
 const MAX_ITEMS = 50;
 
@@ -147,8 +148,8 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
               continue;
             }
             if (key === "points") {
-              payload.points = await resolvePoints(
-                ctx, projectId, value as string | number,
+              payload.points = await pointsPayload(
+                ctx, projectId, value as string | number | Record<string, string | number>,
               );
               continue;
             }
