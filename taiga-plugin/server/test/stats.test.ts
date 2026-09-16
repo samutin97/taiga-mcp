@@ -163,7 +163,7 @@ describe("taiga_stats: sprint load", () => {
     expect(ctx.client.list).not.toHaveBeenCalledWith("/task-custom-attributes", expect.anything());
   });
 
-  it("groups by assignee and role, splits out the unassigned, hides no points for unestimated tasks", async () => {
+  it("groups strictly by assignee, one row per person, with a by_role breakdown", async () => {
     const { server, handlerFor } = captureHandler();
     const members = new Map([[1, "Ada"]]);
     const tasks: FakeTask[] = [
@@ -181,14 +181,45 @@ describe("taiga_stats: sprint load", () => {
     const { json } = await callHandler(handlerFor("taiga_stats"), { sprint: "Sprint Fixture" });
 
     expect(json.load_note).toBeUndefined();
+    // Ada: one row, not three — points/of_capacity are the person's total
+    // (3+4+5+1=13) across all roles, by_role only lists the two roles that
+    // actually have an estimated task (the no-role task's 1 point still
+    // counts toward the total but has nowhere to go in by_role).
     expect(json.load).toEqual([
-      { member: "Ada", role: null, points: 1, of_capacity: 0.03, unestimated_tasks: 0 },
-      { member: "Ada", role: "back", points: 5, of_capacity: 0.13, unestimated_tasks: 0 },
-      { member: "Ada", role: "front", points: 7, of_capacity: 0.18, unestimated_tasks: 1 },
-      { member: "Без исполнителя", role: null, points: 0, of_capacity: 0, unestimated_tasks: 1 },
-      { member: "Без исполнителя", role: "ux", points: 2, of_capacity: 0.05, unestimated_tasks: 0 },
+      {
+        member: "Ada",
+        member_id: 1,
+        points: 13,
+        of_capacity: 0.33,
+        unestimated_tasks: 1,
+        by_role: { front: 7, back: 5 },
+      },
+      {
+        member: "Без исполнителя",
+        member_id: null,
+        points: 2,
+        of_capacity: 0.05,
+        unestimated_tasks: 1,
+        by_role: { ux: 2 },
+      },
     ]);
     // 7 tasks in the sprint, one readAttributes call each — not one per role or member.
     expect(ctx.client.get).toHaveBeenCalledTimes(tasks.length + 1); // + the milestone stats call
+  });
+
+  it("leaves a role out of by_role when none of that role's tasks have an estimate", async () => {
+    const { server, handlerFor } = captureHandler();
+    const members = new Map([[1, "Ada"]]);
+    const tasks: FakeTask[] = [
+      { id: 201, assigned_to: 1, tags: [["ux", null]] }, // role present, no estimate
+    ];
+    const ctx = fakeLoadContext({ hasEstimateAttribute: true, tasks, members });
+
+    registerStatsTool(server, ctx);
+    const { json } = await callHandler(handlerFor("taiga_stats"), { sprint: "Sprint Fixture" });
+
+    expect(json.load).toEqual([
+      { member: "Ada", member_id: 1, points: 0, of_capacity: 0, unestimated_tasks: 1, by_role: {} },
+    ]);
   });
 });

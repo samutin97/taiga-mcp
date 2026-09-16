@@ -27,19 +27,23 @@ const NO_ESTIMATE_ATTRIBUTE_NOTE = "Оценок задач в проекте н
 
 interface LoadRow {
   member: string;
-  role: string | null;
+  /** Real member's user id; `null` for the "Без исполнителя" bucket — never confused with a same-named person. */
+  member_id: number | null;
+  /** Sum of «Оценка» across every role this person has estimated tasks in. */
   points: number;
   of_capacity: number;
-  /** Tasks in this row with no «Оценка» value — hidden from `points`, not from the count. */
+  /** This person's tasks with no «Оценка» value — hidden from `points`, not from the count. */
   unestimated_tasks: number;
+  /** Only roles with at least one estimated task; a role with only unestimated tasks is absent, not zero. */
+  by_role: Record<string, number>;
 }
 
 /**
- * Who is carrying how much of a sprint, by (assignee, role) — the same
- * split a role-distribution skill needs to know who has room. Grouped by
- * role too, not just assignee: a member with tasks in two roles gets two
- * rows rather than one row silently picking one role. Unassigned tasks are
- * their own "member" bucket (`UNASSIGNED_LABEL`), never a person's load.
+ * Who is carrying how much of a sprint — one row per assignee, capacity
+ * being a per-person rule (40 points/sprint), not a per-role one. `by_role`
+ * keeps the split a role-distribution skill needs without multiplying rows.
+ * Unassigned tasks are their own "member" bucket (`UNASSIGNED_LABEL`,
+ * `member_id: null`), never a real person's load.
  *
  * Costs one request to check the «Оценка» field exists, one to list the
  * sprint's tasks (skipped entirely if the field is missing), and one more
@@ -63,21 +67,30 @@ async function sprintLoad(
   });
   const names = await ctx.cache.labelMap(projectId, "member");
 
-  const buckets = new Map<
-    string,
-    { member: string; role: string | null; points: number; unestimated: number }
-  >();
+  interface Bucket {
+    member: string;
+    member_id: number | null;
+    points: number;
+    unestimated: number;
+    by_role: Map<string, number>;
+  }
+  const buckets = new Map<string, Bucket>();
 
   for (const task of items) {
     const assignedTo = task.assigned_to as number | null | undefined;
+    const isAssigned = typeof assignedTo === "number";
     const role = effectiveRole(undefined, task.tags) ?? null;
-    const member =
-      typeof assignedTo === "number" ? (names.get(assignedTo) ?? `#${assignedTo}`) : UNASSIGNED_LABEL;
-    const key = `${assignedTo ?? "none"}:${role ?? "none"}`;
+    const key = isAssigned ? String(assignedTo) : "none";
 
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { member, role, points: 0, unestimated: 0 };
+      bucket = {
+        member: isAssigned ? (names.get(assignedTo) ?? `#${assignedTo}`) : UNASSIGNED_LABEL,
+        member_id: isAssigned ? assignedTo : null,
+        points: 0,
+        unestimated: 0,
+        by_role: new Map(),
+      };
       buckets.set(key, bucket);
     }
 
@@ -86,6 +99,7 @@ async function sprintLoad(
     const value = typeof raw === "number" ? raw : Number(raw);
     if (raw !== undefined && raw !== null && Number.isFinite(value)) {
       bucket.points += value;
+      if (role !== null) bucket.by_role.set(role, (bucket.by_role.get(role) ?? 0) + value);
     } else {
       bucket.unestimated += 1;
     }
@@ -94,15 +108,16 @@ async function sprintLoad(
   const load = [...buckets.values()]
     .map((bucket) => ({
       member: bucket.member,
-      role: bucket.role,
+      member_id: bucket.member_id,
       points: bucket.points,
       of_capacity: Math.round((bucket.points / CAPACITY_PER_SPRINT) * 100) / 100,
       unestimated_tasks: bucket.unestimated,
+      by_role: Object.fromEntries(bucket.by_role),
     }))
     .sort((a, b) => {
       if (a.member === UNASSIGNED_LABEL && b.member !== UNASSIGNED_LABEL) return 1;
       if (b.member === UNASSIGNED_LABEL && a.member !== UNASSIGNED_LABEL) return -1;
-      return a.member.localeCompare(b.member) || (a.role ?? "").localeCompare(b.role ?? "");
+      return a.member.localeCompare(b.member);
     });
 
   return { load };
