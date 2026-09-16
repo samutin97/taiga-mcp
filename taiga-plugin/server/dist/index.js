@@ -22860,6 +22860,7 @@ function blockedNote(ref, subject) {
 function blockerComment(ref, subject) {
   return `\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 #${ref} \xAB${subject}\xBB`;
 }
+var MANUAL_UNBLOCK_HINT = '\u0424\u043B\u0430\u0433 \u0441\u043D\u044F\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0437\u0434\u0435\u0441\u044C: \xAB\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\xBB \u043D\u0430 \u0434\u0440\u0443\u0433\u043E\u0439 \u0441\u0442\u043E\u0440\u043E\u043D\u0435 \u0438 \u0437\u0430\u043F\u0438\u0441\u044C \xAB\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043B\xBB \u043D\u0435 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F. \u0421\u043D\u0438\u043C\u0430\u0439\u0442\u0435 \u0441\u0432\u044F\u0437\u044C \u0446\u0435\u043B\u0438\u043A\u043E\u043C \u0447\u0435\u0440\u0435\u0437 taiga_link (type: "blocks", remove: true).';
 function refsFromLinks(note, attribute) {
   const source = `${note ?? ""} ${typeof attribute === "string" ? attribute : ""}`;
   const found = source.match(/#(\d+)/g) ?? [];
@@ -23311,10 +23312,25 @@ function registerCrudTools(server, ctx, def) {
         );
         changes.assigned_users = [...new Set(ids)];
       }
+      let cachedCurrent;
+      const loadCurrent = async () => {
+        if (!cachedCurrent) {
+          cachedCurrent = await ctx.client.get(`${def.path}/${id}`);
+        }
+        return cachedCurrent;
+      };
+      let blockHint;
+      if (isLinkable(def.name)) {
+        const clearsFlag = changes.is_blocked === false;
+        const blanksNote = typeof changes.blocked_note === "string" && changes.blocked_note.trim() === "";
+        if (clearsFlag || blanksNote) {
+          const before = await loadCurrent();
+          const beforeNote = typeof before.blocked_note === "string" ? before.blocked_note : "";
+          if (refsFromLinks(beforeNote, null).length > 0) blockHint = MANUAL_UNBLOCK_HINT;
+        }
+      }
       if (appendText !== void 0 || addTags !== void 0 || role !== void 0) {
-        const current = await ctx.client.get(
-          `${def.path}/${id}`
-        );
+        const current = await loadCurrent();
         if (appendText !== void 0) {
           const base = typeof changes.description === "string" ? changes.description : current.description ?? "";
           changes.description = base ? `${base}
@@ -23359,6 +23375,7 @@ ${appendText}` : appendText;
       const labels = await buildLabels(ctx, def, projectId);
       const shaped = project(def.name, updated, "slim", labels);
       if (storyPoints) shaped.story_points = storyPoints;
+      if (blockHint) shaped.hint = blockHint;
       return ok(shaped);
     })
   );

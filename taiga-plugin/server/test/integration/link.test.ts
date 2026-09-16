@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { startClient } from "../helpers/mcp-client.js";
 import { TaigaAuth } from "../../src/auth.js";
 import { TaigaClient } from "../../src/client.js";
@@ -134,5 +134,67 @@ describe("taiga_link: снятие последней блокирующей с�
     });
     const texts = comments.json.items.map((c: { comment: string }) => c.comment);
     expect(texts).toContain(`Разблокировал #${blockedRef}`);
+  });
+});
+
+// Acceptance scenario 9: the model closed a story and, to remove the blocks
+// it held, called taiga_userstory_update with is_blocked: false and an
+// emptied blocked_note instead of taiga_link's remove: true. The flag went
+// off, but the blocker's own «Блокирует» side and the "Разблокировал" trail
+// never moved. This suite reproduces exactly that call against the live
+// stand and checks the server now says something about it.
+describe("taiga_userstory_update: подсказка при снятии блокировки руками на реальном стенде", () => {
+  const createdRefs: number[] = [];
+
+  afterEach(async () => {
+    while (createdRefs.length > 0) {
+      const ref = createdRefs.pop()!;
+      await call("taiga_userstory_delete", { ref, confirm: true }).catch(() => {});
+    }
+  });
+
+  it("hint приходит, а обновление всё равно применяется", async () => {
+    const blocker = await call("taiga_userstory_create", {
+      subject: "Блокирующая история (hint-тест)",
+    });
+    expect(blocker.isError, blocker.raw).toBe(false);
+    createdRefs.push(blocker.json.ref);
+    const blockerRef = blocker.json.ref;
+
+    const blocked = await call("taiga_userstory_create", {
+      subject: "Заблокированная история (hint-тест)",
+    });
+    expect(blocked.isError, blocked.raw).toBe(false);
+    createdRefs.push(blocked.json.ref);
+    const blockedRef = blocked.json.ref;
+
+    const linked = await call("taiga_link", {
+      from: blockerRef,
+      to: blockedRef,
+      type: "blocks",
+    });
+    expect(linked.isError, linked.raw).toBe(false);
+
+    // Exactly the shortcut acceptance caught: is_blocked/blocked_note
+    // cleared by hand instead of taiga_link { remove: true }.
+    const cleared = await call("taiga_userstory_update", {
+      ref: blockedRef,
+      is_blocked: false,
+      blocked_note: "",
+    });
+    expect(cleared.isError, cleared.raw).toBe(false);
+    expect(cleared.json.hint).toMatch(/taiga_link/);
+    expect(cleared.json.is_blocked).toBe(false);
+
+    const after = await call("taiga_userstory_get", { ref: blockedRef, fields: "full" });
+    expect(after.json.is_blocked).toBe(false);
+    expect(after.json.blocked_note ?? "").toBe("");
+
+    // The other side of the shortcut's damage: no "Разблокировал" trail
+    // appears on the blocker — that comment is only ever posted by
+    // taiga_link's own remove: true path, never by this update.
+    const comments = await call("taiga_comment_list", { resource: "userstory", ref: blockerRef });
+    const texts = (comments.json.items as { comment: string }[]).map((c) => c.comment);
+    expect(texts).not.toContain(`Разблокировал #${blockedRef}`);
   });
 });

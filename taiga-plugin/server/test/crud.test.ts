@@ -228,3 +228,81 @@ describe("taiga_userstory_get: «Оценка» — задачное поле, �
     expect(json.blocks).toEqual([]);
   });
 });
+
+describe("taiga_userstory_update/taiga_task_update: подсказка при снятии блокировки руками", () => {
+  beforeEach(() => {
+    resetAttributeCache();
+  });
+
+  it("возвращает hint, когда флаг снимают руками, а note ещё называет #12", async () => {
+    const ctx = fakeCtx({
+      "/userstories/20": {
+        id: 20,
+        ref: 8,
+        subject: "История",
+        is_blocked: true,
+        blocked_note: "Блокируется #12 «Блокер»",
+      },
+    });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, USER_STORY);
+    const update = server.handlers.get("taiga_userstory_update")!;
+
+    const result = await update({ id: 20, is_blocked: false, blocked_note: "" });
+
+    expect(result.isError).toBeUndefined();
+    const json = JSON.parse(result.content[0].text);
+    expect(json.hint).toMatch(/taiga_link/);
+    expect(json.hint).toMatch(/remove/);
+  });
+
+  it("не возвращает hint, если note уже была пустой", async () => {
+    const ctx = fakeCtx({
+      "/userstories/20": { id: 20, ref: 8, subject: "История", is_blocked: true, blocked_note: "" },
+    });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, USER_STORY);
+    const update = server.handlers.get("taiga_userstory_update")!;
+
+    const result = await update({ id: 20, is_blocked: false });
+
+    expect(result.isError).toBeUndefined();
+    const json = JSON.parse(result.content[0].text);
+    expect(json).not.toHaveProperty("hint");
+  });
+
+  it("не возвращает hint для обновления, не связанного с блокировкой", async () => {
+    const ctx = fakeCtx({});
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, USER_STORY);
+    const update = server.handlers.get("taiga_userstory_update")!;
+
+    const result = await update({ id: 20, subject: "Новое имя" });
+
+    expect(result.isError).toBeUndefined();
+    const json = JSON.parse(result.content[0].text);
+    expect(json).not.toHaveProperty("hint");
+    expect(ctx.client.get).not.toHaveBeenCalled();
+  });
+
+  it("то же самое поведение для задачи: hint приходит, когда note называет #3", async () => {
+    const ctx = fakeCtx({
+      "/tasks/30": {
+        id: 30,
+        ref: 7,
+        subject: "Задача",
+        is_blocked: true,
+        blocked_note: "Блокируется #3 «Блокер»",
+      },
+    });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const update = server.handlers.get("taiga_task_update")!;
+
+    const result = await update({ id: 30, is_blocked: false, blocked_note: "" });
+
+    expect(result.isError).toBeUndefined();
+    const json = JSON.parse(result.content[0].text);
+    expect(json.hint).toMatch(/taiga_link/);
+  });
+});

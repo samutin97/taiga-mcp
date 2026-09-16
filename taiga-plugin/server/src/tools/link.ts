@@ -41,6 +41,17 @@ export function blockerComment(ref: number, subject: string): string {
   return `Блокирует #${ref} «${subject}»`;
 }
 
+/**
+ * Shown by taiga_userstory_update/taiga_task_update when a caller clears
+ * is_blocked or blanks blocked_note by hand instead of calling this tool
+ * with remove: true. That write only ever lands on this side: the other
+ * endpoint's «Блокирует» field and the "Разблокировал" line this tool
+ * itself would post stay exactly as they were.
+ */
+export const MANUAL_UNBLOCK_HINT =
+  "Флаг снят только здесь: «Блокирует» на другой стороне и запись «Разблокировал» не " +
+  'появятся. Снимайте связь целиком через taiga_link (type: "blocks", remove: true).';
+
 /** Every `#ref` mentioned in a note and/or a custom-attribute value, deduped and sorted. */
 export function refsFromLinks(note: string | null | undefined, attribute: unknown): number[] {
   const source = `${note ?? ""} ${typeof attribute === "string" ? attribute : ""}`;

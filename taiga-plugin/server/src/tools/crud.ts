@@ -19,7 +19,7 @@ import {
   effectiveRole,
   createWithRoleEstimate,
 } from "../role-points.js";
-import { refsFromLinks } from "./link.js";
+import { refsFromLinks, MANUAL_UNBLOCK_HINT } from "./link.js";
 
 /** Only stories and tasks carry blocking relations — the two `AttrResource` kinds. */
 function isLinkable(name: ResourceDef["name"]): name is AttrResource {
@@ -505,14 +505,39 @@ export function registerCrudTools(
         changes.assigned_users = [...new Set(ids)];
       }
 
+      // Lazy and shared: at most one extra GET, paid only by the branches
+      // below that actually need the record as it stood before this PATCH.
+      let cachedCurrent: Record<string, unknown> | undefined;
+      const loadCurrent = async (): Promise<Record<string, unknown>> => {
+        if (!cachedCurrent) {
+          cachedCurrent = await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
+        }
+        return cachedCurrent;
+      };
+
+      // A block removed by hand — clearing is_blocked or blanking
+      // blocked_note instead of calling taiga_link with remove: true — only
+      // ever writes this side. Say so without refusing the write or doing
+      // any extra write of our own; the value the caller asked for still
+      // applies as given.
+      let blockHint: string | undefined;
+      if (isLinkable(def.name)) {
+        const clearsFlag = changes.is_blocked === false;
+        const blanksNote =
+          typeof changes.blocked_note === "string" && changes.blocked_note.trim() === "";
+        if (clearsFlag || blanksNote) {
+          const before = await loadCurrent();
+          const beforeNote = typeof before.blocked_note === "string" ? before.blocked_note : "";
+          if (refsFromLinks(beforeNote, null).length > 0) blockHint = MANUAL_UNBLOCK_HINT;
+        }
+      }
+
       if (appendText !== undefined || addTags !== undefined || role !== undefined) {
         // A value passed in this same call (already resolved into `changes`)
         // takes precedence over the server's current value as the base to
         // append/add onto — otherwise an explicit `description`/`tags` here
         // would be silently discarded in favour of the stale server value.
-        const current = await ctx.client.get<Record<string, unknown>>(
-          `${def.path}/${id}`,
-        );
+        const current = await loadCurrent();
         if (appendText !== undefined) {
           const base =
             typeof changes.description === "string"
@@ -581,6 +606,7 @@ export function registerCrudTools(
       const labels = await buildLabels(ctx, def, projectId);
       const shaped = project(def.name, updated, "slim", labels);
       if (storyPoints) shaped.story_points = storyPoints;
+      if (blockHint) shaped.hint = blockHint;
       return ok(shaped);
     }),
   );
