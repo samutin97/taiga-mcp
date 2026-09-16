@@ -27,6 +27,19 @@ function isLinkable(name: ResourceDef["name"]): name is AttrResource {
 }
 
 /**
+ * Coerce a raw «Оценка» attribute value the same way role-points.ts and
+ * stats.ts already do: Taiga's custom fields aren't type-checked server
+ * side, so a "number" field can still hold a string (typed by hand in
+ * Taiga's UI) — `Number("5")` recovers that, while `Number("abc")` (or a
+ * missing value) must read as "no estimate", not as 0 or NaN.
+ */
+function parseEstimate(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
  * `blocked_by`/`blocks`/`estimate` for a `fields: "full"` card.
  *
  * The note (`blocked_note`) is the sole source of truth for `blocked_by` —
@@ -70,8 +83,8 @@ async function readLinks(
     blocks: blocksAttrId === undefined ? [] : refsFromLinks(null, values?.[String(blocksAttrId)]),
   };
   if (resource === "task") {
-    const value = estimateAttrId === undefined ? undefined : values?.[String(estimateAttrId)];
-    result.estimate = typeof value === "number" ? value : null;
+    result.estimate =
+      estimateAttrId === undefined ? null : parseEstimate(values?.[String(estimateAttrId)]);
   }
   return result;
 }

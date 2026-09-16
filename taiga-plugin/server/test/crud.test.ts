@@ -124,6 +124,36 @@ describe("taiga_task_get: «Оценка» в fields: \"full\"", () => {
     expect(valueReads).toHaveLength(1);
   });
 
+  it("читает «Оценка», записанную строкой (Taiga не проверяет типы кастомных полей)", async () => {
+    const ctx = fakeCtx({
+      "/tasks/10": { id: 10, ref: 5, subject: "Задача", blocked_note: "" },
+      "/task-custom-attributes?project=1&page_size=1000": [{ id: 9, name: "Оценка", type: "number" }],
+      "/tasks/custom-attributes-values/10": { attributes_values: { "9": "5" }, version: 1 },
+    });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const get = server.handlers.get("taiga_task_get")!;
+
+    const result = await get({ id: 10, fields: "full" });
+    const json = JSON.parse(result.content[0].text);
+    expect(json.estimate).toBe(5);
+  });
+
+  it("estimate: null (не 0, не NaN), когда значение не число ни в каком виде", async () => {
+    const ctx = fakeCtx({
+      "/tasks/10": { id: 10, ref: 5, subject: "Задача", blocked_note: "" },
+      "/task-custom-attributes?project=1&page_size=1000": [{ id: 9, name: "Оценка", type: "number" }],
+      "/tasks/custom-attributes-values/10": { attributes_values: { "9": "abc" }, version: 1 },
+    });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const get = server.handlers.get("taiga_task_get")!;
+
+    const result = await get({ id: 10, fields: "full" });
+    const json = JSON.parse(result.content[0].text);
+    expect(json.estimate).toBeNull();
+  });
+
   it("estimate: null, когда в проекте нет поля «Оценка», и значения вовсе не читаются", async () => {
     const ctx = fakeCtx({
       "/tasks/10": { id: 10, ref: 5, subject: "Задача", blocked_note: "" },
