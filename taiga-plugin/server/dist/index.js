@@ -4558,8 +4558,8 @@ var require_core = __commonJS({
         }
       }
       // add "vocabulary" - a collection of keywords
-      addVocabulary(definitions) {
-        for (const def of definitions)
+      addVocabulary(definitions2) {
+        for (const def of definitions2)
           this.addKeyword(def);
         return this;
       }
@@ -18808,7 +18808,7 @@ var addMeta = (def, refs, jsonSchema) => {
 // node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js
 var zodToJsonSchema = (schema, options) => {
   const refs = getRefs(options);
-  let definitions = typeof options === "object" && options.definitions ? Object.entries(options.definitions).reduce((acc, [name2, schema2]) => ({
+  let definitions2 = typeof options === "object" && options.definitions ? Object.entries(options.definitions).reduce((acc, [name2, schema2]) => ({
     ...acc,
     [name2]: parseDef(schema2._def, {
       ...refs,
@@ -18825,11 +18825,11 @@ var zodToJsonSchema = (schema, options) => {
     main2.title = title;
   }
   if (refs.flags.hasReferencedOpenAiAnyType) {
-    if (!definitions) {
-      definitions = {};
+    if (!definitions2) {
+      definitions2 = {};
     }
-    if (!definitions[refs.openAiAnyTypeName]) {
-      definitions[refs.openAiAnyTypeName] = {
+    if (!definitions2[refs.openAiAnyTypeName]) {
+      definitions2[refs.openAiAnyTypeName] = {
         // Skipping "object" as no properties can be defined and additionalProperties must be "false"
         type: ["string", "number", "integer", "boolean", "array", "null"],
         items: {
@@ -18842,9 +18842,9 @@ var zodToJsonSchema = (schema, options) => {
       };
     }
   }
-  const combined = name === void 0 ? definitions ? {
+  const combined = name === void 0 ? definitions2 ? {
     ...main2,
-    [refs.definitionPath]: definitions
+    [refs.definitionPath]: definitions2
   } : main2 : {
     $ref: [
       ...refs.$refStrategy === "relative" ? [] : refs.basePath,
@@ -18852,7 +18852,7 @@ var zodToJsonSchema = (schema, options) => {
       name
     ].join("/"),
     [refs.definitionPath]: {
-      ...definitions,
+      ...definitions2,
       [name]: main2
     }
   };
@@ -21739,6 +21739,67 @@ var TaigaClient = class {
   }
 };
 
+// src/custom-attributes.ts
+var DEFINITION_PATH = {
+  task: "/task-custom-attributes",
+  userstory: "/userstory-custom-attributes"
+};
+var VALUES_PATH = {
+  task: "/tasks/custom-attributes-values",
+  userstory: "/userstories/custom-attributes-values"
+};
+var cache = /* @__PURE__ */ new Map();
+var TTL_MS = 6e4;
+async function definitions(ctx, projectId, resource) {
+  const key = `${projectId}:${resource}`;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.defs;
+  const { items } = await ctx.client.list(DEFINITION_PATH[resource], {
+    project: projectId,
+    page_size: 1e3
+  });
+  const defs = new Map(
+    items.map((row) => [String(row.name), { id: row.id, type: String(row.type) }])
+  );
+  cache.set(key, { at: Date.now(), defs });
+  return defs;
+}
+async function attributeIds(ctx, projectId, resource) {
+  const defs = await definitions(ctx, projectId, resource);
+  return new Map([...defs].map(([name, def]) => [name, def.id]));
+}
+async function attributeSummaries(ctx, projectId, resource) {
+  const defs = await definitions(ctx, projectId, resource);
+  return [...defs].map(([name, def]) => ({ name, type: def.type }));
+}
+async function readAttributes(ctx, resource, itemId) {
+  const row = await ctx.client.get(
+    `${VALUES_PATH[resource]}/${itemId}`
+  );
+  return row.attributes_values ?? {};
+}
+async function writeAttributes(ctx, resource, itemId, values) {
+  const current = await readAttributes(ctx, resource, itemId);
+  const merged = { ...current };
+  for (const [id, value] of Object.entries(values)) {
+    if (value === null) delete merged[id];
+    else merged[id] = value;
+  }
+  if (Object.keys(merged).length === 0 && Object.keys(values).length > 0) {
+    for (const id of Object.keys(values)) merged[id] = "";
+  }
+  await ctx.client.patch(VALUES_PATH[resource], itemId, { attributes_values: merged });
+}
+function requireAttribute(ids, name) {
+  const id = ids.get(name);
+  if (id === void 0) {
+    throw new TaigaError(`\u0412 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435\u0442 \u043F\u043E\u043B\u044F \xAB${name}\xBB.`, {
+      hint: "\u0417\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u0432 Taiga: Admin \u2192 Attributes \u2192 Custom fields."
+    });
+  }
+  return id;
+}
+
 // src/schema-cache.ts
 var LOOKUP_PATHS = {
   "userstory-status": "/userstory-statuses",
@@ -21829,7 +21890,9 @@ var SchemaCache = class {
     const entries = kind === "member" ? raw.filter((row) => typeof row.user === "number").map((row) => ({
       id: row.user,
       name: String(row.full_name ?? row.email ?? ""),
-      qualifier: row.email ? String(row.email) : void 0
+      qualifier: row.email ? String(row.email) : void 0,
+      username: row.username ? String(row.username) : void 0,
+      role: row.role_name ? String(row.role_name) : void 0
     })) : raw.map((row) => ({ id: row.id, name: String(row.name) }));
     this.lookups.set(key, { at: Date.now(), entries });
     return entries;
@@ -21838,16 +21901,19 @@ var SchemaCache = class {
     if (typeof value === "number") return value;
     const entries = await this.entries(projectId, kind);
     const needle = value.trim().toLowerCase();
-    const matches = entries.filter((entry) => entry.name.toLowerCase() === needle);
+    const matches = entries.filter(
+      (entry) => [entry.name, entry.username, entry.qualifier].filter((key) => typeof key === "string" && key.length > 0).some((key) => key.toLowerCase() === needle)
+    );
     if (matches.length === 1) return matches[0].id;
+    const describe = (entry) => kind === "member" ? entry.username ? `${entry.name} (${entry.username})` : entry.name : entry.qualifier ?? String(entry.id);
     if (matches.length > 1) {
-      const options = matches.map((entry) => entry.qualifier ?? String(entry.id)).join(", ");
+      const options = matches.map(describe).join(", ");
       throw new TaigaError(
         `"${value}" matches more than one ${kind} in this project.`,
         { hint: `Disambiguate using one of: ${options}` }
       );
     }
-    const valid = entries.map((entry) => entry.name).join(", ");
+    const valid = entries.map((entry) => kind === "member" ? describe(entry) : entry.name).join(", ");
     throw new TaigaError(`"${value}" is not a valid ${kind} in this project.`, {
       hint: `Valid values: ${valid}`
     });
@@ -21870,11 +21936,18 @@ var SchemaCache = class {
     const collected = await Promise.all(
       kinds.map(async (kind) => [kind, await this.entries(projectId, kind)])
     );
+    const resources = ["task", "userstory"];
+    const customFields = await Promise.all(
+      resources.map(
+        async (resource) => [resource, await attributeSummaries({ client: this.client }, projectId, resource)]
+      )
+    );
     return {
       id: project2.id,
       slug: project2.slug,
       name: project2.name,
-      lookups: Object.fromEntries(collected)
+      lookups: Object.fromEntries(collected),
+      customFields: Object.fromEntries(customFields)
     };
   }
 };
@@ -21898,8 +21971,8 @@ var LazyToolContext = class {
       const config2 = this.override ?? loadConfig();
       const auth = new TaigaAuth(config2);
       const client = new TaigaClient(config2, auth);
-      const cache = new SchemaCache(client, { defaultProject: config2.defaultProject });
-      this.built = { config: config2, auth, client, cache };
+      const cache2 = new SchemaCache(client, { defaultProject: config2.defaultProject });
+      this.built = { config: config2, auth, client, cache: cache2 };
     }
     return this.built;
   }
@@ -22134,32 +22207,39 @@ function registerWhoamiTool(server, ctx) {
 }
 
 // src/projections.ts
-var extra = (key, field) => (raw) => {
+var makeGetter = (sourceKeys, fn) => Object.assign(fn, { sourceKeys });
+var extra = (key, field) => makeGetter([key], (raw) => {
   const info = raw[key];
   return info ? info[field] ?? null : null;
-};
-var labelled = (key, map) => (raw, labels) => {
+});
+var labelled = (key, map) => makeGetter([key], (raw, labels) => {
   const id = raw[key];
   if (typeof id !== "number") return null;
   return labels[map]?.get(id) ?? id;
-};
-var named = (infoKey, infoField, idKey, map) => (raw, labels) => {
+});
+var named = (infoKey, infoField, idKey, map) => makeGetter([infoKey, idKey], (raw, labels) => {
   const info = raw[infoKey];
   if (info && info[infoField] != null) return info[infoField];
   const id = raw[idKey];
   if (typeof id !== "number") return null;
   return labels[map]?.get(id) ?? id;
-};
-var tags = (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : [];
-var plain = (key) => (raw) => raw[key] ?? null;
+});
+var tags = makeGetter(
+  ["tags"],
+  (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : []
+);
+var plain = (key) => makeGetter([key], (raw) => raw[key] ?? null);
 var SLIM = {
   userstory: {
     ref: plain("ref"),
     subject: plain("subject"),
     status: named("status_extra_info", "name", "status", "status"),
     assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
-    assigned_users: (raw, labels) => (Array.isArray(raw.assigned_users) ? raw.assigned_users : []).map(
-      (id) => labels.member?.get(id) ?? id
+    assigned_users: makeGetter(
+      ["assigned_users"],
+      (raw, labels) => (Array.isArray(raw.assigned_users) ? raw.assigned_users : []).map(
+        (id) => labels.member?.get(id) ?? id
+      )
     ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
@@ -22194,8 +22274,14 @@ var SLIM = {
     status: named("status_extra_info", "name", "status", "status"),
     color: plain("color"),
     assigned_to: named("assigned_to_extra_info", "full_name_display", "assigned_to", "member"),
-    stories_total: (raw) => raw.user_stories_counts?.total ?? null,
-    stories_progress: (raw) => raw.user_stories_counts?.progress ?? null
+    stories_total: makeGetter(
+      ["user_stories_counts"],
+      (raw) => raw.user_stories_counts?.total ?? null
+    ),
+    stories_progress: makeGetter(
+      ["user_stories_counts"],
+      (raw) => raw.user_stories_counts?.progress ?? null
+    )
   },
   sprint: {
     id: plain("id"),
@@ -22234,6 +22320,15 @@ var DETAIL_ONLY = {
 function project(resource, raw, fields = "slim", labels = {}) {
   if (fields === "full") return raw;
   const shape = SLIM[resource];
+  if (fields === "found") {
+    const out = {};
+    for (const [name, get] of Object.entries(shape)) {
+      if (get.sourceKeys.some((key) => Object.hasOwn(raw, key))) {
+        out[name] = get(raw, labels);
+      }
+    }
+    return out;
+  }
   if (Array.isArray(fields)) {
     return Object.fromEntries(
       fields.map((field) => {
@@ -22302,7 +22397,7 @@ function registerProjectTools(server, ctx) {
     ctx,
     {
       name: "taiga_project_schema",
-      description: "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
+      description: "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Members include their username and role in the project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
       input: { project: PROJECT_SCHEMA },
       kind: "read"
     },
@@ -22317,6 +22412,7 @@ function registerProjectTools(server, ctx) {
 var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
 var assigneeUpdate = external_exports.string().optional().describe('Assignee full name; "" unassigns.');
 var dueDateUpdate = external_exports.string().optional().describe('ISO date; "" clears it.');
+var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe('\u041F\u043E\u0438\u043D\u0442\u044B: "5" \u2014 \u043F\u0435\u0440\u0432\u043E\u0439 \u0440\u043E\u043B\u0438, {"Front":"5","Back":"3"} \u2014 \u043F\u043E \u0440\u043E\u043B\u044F\u043C.');
 var USER_STORY = {
   name: "userstory",
   path: "/userstories",
@@ -22340,12 +22436,7 @@ var USER_STORY = {
     status: external_exports.string().optional().describe("Status name; defaults to the project's first status."),
     assigned_to: external_exports.string().optional().describe("Assignee full name."),
     sprint: external_exports.string().optional().describe("Sprint (milestone) name."),
-    // Verified live: Taiga stores points as a per-role map, not a scalar —
-    // sending this value straight through crashes the server. The factory
-    // resolves it to the project's primary estimation role; see resolvePoints.
-    points: external_exports.string().optional().describe(
-      "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles are left unestimated."
-    ),
+    points: pointsField,
     epic: external_exports.string().optional().describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: external_exports.string().optional().describe("ISO date, e.g. 2026-09-30.")
@@ -22356,9 +22447,7 @@ var USER_STORY = {
     status: external_exports.string().optional(),
     assigned_to: assigneeUpdate,
     sprint: external_exports.string().optional().describe('Sprint name; "" moves to backlog.'),
-    points: external_exports.string().optional().describe(
-      "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles keep their current estimate."
-    ),
+    points: pointsField,
     epic: external_exports.string().optional().describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: dueDateUpdate,
@@ -22396,7 +22485,9 @@ var TASK = {
     status: external_exports.string().optional(),
     assigned_to: external_exports.string().optional(),
     tags: tagsField,
-    due_date: external_exports.string().optional()
+    due_date: external_exports.string().optional(),
+    estimate: external_exports.number().optional().describe("\u041E\u0446\u0435\u043D\u043A\u0430 \u0432 \u043F\u043E\u0438\u043D\u0442\u0430\u0445; \u043F\u0438\u0448\u0435\u0442\u0441\u044F \u0432 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB."),
+    role: external_exports.enum(["front", "back", "ux", "design"]).optional().describe("\u0420\u043E\u043B\u044C \u0437\u0430\u0434\u0430\u0447\u0438; \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u0442\u0435\u0433\u043E\u043C, \u043F\u0440\u0435\u0436\u043D\u0438\u0439 \u0442\u0435\u0433 \u0440\u043E\u043B\u0438 \u0441\u043D\u0438\u043C\u0430\u0435\u0442\u0441\u044F.")
   },
   updateFields: {
     subject: external_exports.string().optional(),
@@ -22407,7 +22498,9 @@ var TASK = {
     tags: tagsField,
     due_date: dueDateUpdate,
     is_blocked: external_exports.boolean().optional(),
-    blocked_note: external_exports.string().optional()
+    blocked_note: external_exports.string().optional(),
+    estimate: external_exports.number().optional().describe("\u041E\u0446\u0435\u043D\u043A\u0430 \u0432 \u043F\u043E\u0438\u043D\u0442\u0430\u0445; \u043F\u0438\u0448\u0435\u0442\u0441\u044F \u0432 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB."),
+    role: external_exports.enum(["front", "back", "ux", "design"]).optional().describe("\u0420\u043E\u043B\u044C \u0437\u0430\u0434\u0430\u0447\u0438; \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u0442\u0435\u0433\u043E\u043C, \u043F\u0440\u0435\u0436\u043D\u0438\u0439 \u0442\u0435\u0433 \u0440\u043E\u043B\u0438 \u0441\u043D\u0438\u043C\u0430\u0435\u0442\u0441\u044F.")
   },
   lookups: [
     { field: "status", kind: "task-status" },
@@ -22549,7 +22642,387 @@ var RESOURCES = [
   WIKI
 ];
 
+// src/points.ts
+async function computableRoles(ctx, projectId) {
+  const { items } = await ctx.client.list("/roles", {
+    project: projectId,
+    page_size: 1e3
+  });
+  return items.filter((row) => row.computable === true).map((row) => ({ id: row.id, name: String(row.name), order: Number(row.order ?? 0) })).sort((a, b) => a.order - b.order);
+}
+async function pointScale(ctx, projectId) {
+  const { items } = await ctx.client.list("/points", {
+    project: projectId,
+    page_size: 1e3
+  });
+  return items.map((row) => row.value).filter((value) => typeof value === "number").sort((a, b) => a - b);
+}
+function roundUpToScale(sum, scale) {
+  const fits = scale.filter((value) => value >= sum);
+  if (fits.length > 0) return fits[0];
+  return scale.length > 0 ? scale[scale.length - 1] : sum;
+}
+async function pointsPayload(ctx, projectId, value) {
+  const roles = await computableRoles(ctx, projectId);
+  if (typeof value !== "object") {
+    const primary = roles[0];
+    if (!primary) {
+      throw new TaigaError("\u0412 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435\u0442 \u0440\u043E\u043B\u0435\u0439, \u043F\u043E \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u043E\u0438\u043D\u0442\u044B.");
+    }
+    return { [primary.id]: await ctx.cache.resolveLookup(projectId, "points", value) };
+  }
+  const payload = {};
+  for (const [roleName, points] of Object.entries(value)) {
+    const role = roles.find((row) => row.name.toLowerCase() === roleName.trim().toLowerCase());
+    if (!role) {
+      throw new TaigaError(
+        `\u0420\u043E\u043B\u044C \xAB${roleName}\xBB \u0432 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435 \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F: ${roles.map((r) => r.name).join(", ")}.`
+      );
+    }
+    payload[role.id] = await ctx.cache.resolveLookup(projectId, "points", points);
+  }
+  return payload;
+}
+
+// src/role-points.ts
+var ROLE_TAGS = ["front", "back", "ux", "design"];
+function withRoleTag(tags2, role) {
+  const kept = tags2.filter((tag) => !ROLE_TAGS.includes(tag.toLowerCase()));
+  return [...kept, role.toLowerCase()];
+}
+function effectiveRole(role, tags2) {
+  if (role !== void 0) return role;
+  if (!Array.isArray(tags2)) return void 0;
+  for (const tag of tags2) {
+    const name = String(Array.isArray(tag) ? tag[0] : tag).toLowerCase();
+    if (ROLE_TAGS.includes(name)) return name;
+  }
+  return void 0;
+}
+async function createWithRoleEstimate(ctx, projectId, path, payload, role, estimate) {
+  let estimateAttrId;
+  if (typeof estimate === "number") {
+    const ids = await attributeIds(ctx, projectId, "task");
+    estimateAttrId = requireAttribute(ids, "\u041E\u0446\u0435\u043D\u043A\u0430");
+  }
+  if (role !== void 0) {
+    payload.tags = withRoleTag(payload.tags ?? [], role);
+  }
+  const row = await ctx.client.post(path, payload);
+  if (estimateAttrId !== void 0) {
+    await writeAttributes(ctx, "task", row.id, { [estimateAttrId]: estimate });
+  }
+  let recalcTarget;
+  if (estimate !== void 0 || role !== void 0) {
+    const forRole = effectiveRole(role, row.tags);
+    if (forRole && typeof row.user_story === "number") {
+      recalcTarget = { storyId: row.user_story, role: forRole };
+    }
+  }
+  return { row, recalcTarget };
+}
+async function recalcStoryPoints(ctx, projectId, storyId, role) {
+  const ids = await attributeIds(ctx, projectId, "task");
+  const estimateId = ids.get("\u041E\u0446\u0435\u043D\u043A\u0430");
+  if (estimateId === void 0) return null;
+  const { items } = await ctx.client.list("/tasks", {
+    project: projectId,
+    user_story: storyId,
+    page_size: 1e3
+  });
+  const ofRole = items.filter(
+    (task) => task.tags?.some(
+      (tag) => String(tag[0]).toLowerCase() === role
+    )
+  );
+  let sum = 0;
+  let estimated = 0;
+  for (const task of ofRole) {
+    const values = await readAttributes(ctx, "task", task.id);
+    const value = Number(values[String(estimateId)]);
+    if (Number.isFinite(value)) {
+      sum += value;
+      estimated += 1;
+    }
+  }
+  if (estimated === 0) return null;
+  const roles = await computableRoles(ctx, projectId);
+  const target = roles.find((row) => row.name.toLowerCase() === role);
+  if (!target) return null;
+  const scale = await pointScale(ctx, projectId);
+  const rounded = roundUpToScale(sum, scale);
+  const story = await ctx.client.get(`/userstories/${storyId}`);
+  const before = story.total_points ?? null;
+  const pointsId = await ctx.cache.resolveLookup(projectId, "points", String(rounded));
+  await ctx.client.patch("/userstories", storyId, {
+    points: { ...story.points ?? {}, [target.id]: pointsId }
+  });
+  return { role: target.name, from: before, to: rounded };
+}
+
+// src/tools/comment.ts
+var COMMENTABLE = {
+  userstory: { path: "/userstories", history: "userstory", resolverKey: "us" },
+  task: { path: "/tasks", history: "task", resolverKey: "task" },
+  issue: { path: "/issues", history: "issue", resolverKey: "issue" },
+  epic: { path: "/epics", history: "epic", resolverKey: "epic" }
+};
+async function addComment(ctx, resource, id, comment) {
+  await ctx.client.patch(COMMENTABLE[resource].path, id, { comment });
+}
+var resourceArg = external_exports.enum(["userstory", "task", "issue", "epic"]).describe("Which kind of item the comment belongs to.");
+async function locateItem(ctx, resource, projectId, id, ref) {
+  if (typeof id === "number") return id;
+  if (typeof ref === "number") {
+    return ctx.cache.resolveRef(projectId, COMMENTABLE[resource].resolverKey, ref);
+  }
+  throw new TaigaError("Specify the item by `ref` (the #number) or `id`.");
+}
+function registerCommentTools(server, ctx) {
+  const common2 = {
+    project: PROJECT_SCHEMA,
+    resource: resourceArg,
+    id: external_exports.number().optional().describe("Internal item id."),
+    ref: external_exports.number().optional().describe("The #number shown in Taiga.")
+  };
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_comment_list",
+      description: "List the comments on a user story, task, issue or epic, oldest first.",
+      input: common2,
+      kind: "read"
+    },
+    guard(async (args) => {
+      const a = args;
+      const resource = a.resource;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locateItem(
+        ctx,
+        resource,
+        projectId,
+        a.id,
+        a.ref
+      );
+      const history = await ctx.client.get(
+        `/history/${COMMENTABLE[resource].history}/${id}`,
+        { page_size: 1e3 }
+      );
+      const items = history.filter(
+        (entry) => typeof entry.comment === "string" && entry.comment !== "" && entry.delete_comment_date == null
+      ).map((entry) => ({
+        author: entry.user?.name ?? null,
+        created_at: entry.created_at,
+        comment: entry.comment
+      })).reverse();
+      return ok({ total: items.length, items });
+    })
+  );
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_comment_add",
+      description: "Add a comment to a user story, task, issue or epic.",
+      input: { ...common2, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
+      kind: "create"
+    },
+    guard(async (args) => {
+      const a = args;
+      const resource = a.resource;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const id = await locateItem(
+        ctx,
+        resource,
+        projectId,
+        a.id,
+        a.ref
+      );
+      await addComment(ctx, resource, id, a.comment);
+      return ok({ added: true, resource, id });
+    })
+  );
+}
+
+// src/tools/link.ts
+var PATH = {
+  userstory: "/userstories",
+  task: "/tasks"
+};
+var RESOLVER_KEY = {
+  userstory: "us",
+  task: "task"
+};
+function blockedNote(ref, subject) {
+  return `\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F #${ref} \xAB${subject}\xBB`;
+}
+function blockerComment(ref, subject) {
+  return `\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 #${ref} \xAB${subject}\xBB`;
+}
+function refsFromLinks(note, attribute) {
+  const source = `${note ?? ""} ${typeof attribute === "string" ? attribute : ""}`;
+  const found = source.match(/#(\d+)/g) ?? [];
+  return [...new Set(found.map((token) => Number(token.slice(1))))].sort((a, b) => a - b);
+}
+function withoutRef(note, ref) {
+  return note.split("\n").filter((line) => line.trim() !== "").filter((line) => {
+    const match = line.match(/#(\d+)/);
+    return match ? Number(match[1]) !== ref : true;
+  }).join("\n");
+}
+function formatRefs(refs) {
+  return refs.map((ref) => `#${ref}`).join(", ");
+}
+async function resolveEndpoint(ctx, projectId, ref) {
+  for (const kind of ["userstory", "task"]) {
+    try {
+      const id = await ctx.cache.resolveRef(projectId, RESOLVER_KEY[kind], ref);
+      const raw = await ctx.client.get(`${PATH[kind]}/${id}`);
+      return { ref, kind, id, subject: String(raw.subject ?? ""), raw };
+    } catch (error2) {
+      if (!(error2 instanceof TaigaError && error2.status === 404)) throw error2;
+    }
+  }
+  throw new TaigaError(`No story or task #${ref} in this project.`, { status: 404 });
+}
+async function currentAttr(ctx, projectId, point, name) {
+  const ids = await attributeIds(ctx, projectId, point.kind);
+  const id = ids.get(name);
+  if (id === void 0) return { id: void 0, value: void 0 };
+  const values = await readAttributes(ctx, point.kind, point.id);
+  return { id, value: values[String(id)] };
+}
+async function addRefToAttribute(ctx, point, attr, ref) {
+  if (attr.id === void 0) return false;
+  const refs = refsFromLinks(null, attr.value);
+  const next = refs.includes(ref) ? refs : [...refs, ref].sort((a, b) => a - b);
+  await writeAttributes(ctx, point.kind, point.id, { [attr.id]: formatRefs(next) });
+  return true;
+}
+async function removeRefFromAttribute(ctx, point, attr, ref) {
+  if (attr.id === void 0) return false;
+  const refs = refsFromLinks(null, attr.value).filter((r) => r !== ref);
+  await writeAttributes(ctx, point.kind, point.id, { [attr.id]: refs.length > 0 ? formatRefs(refs) : null });
+  return true;
+}
+async function applyBlocks(ctx, projectId, from, to, remove) {
+  const currentNote = typeof to.raw.blocked_note === "string" ? to.raw.blocked_note : "";
+  const noteRefs = refsFromLinks(currentNote, null);
+  const changed = [];
+  if (!remove) {
+    if (noteRefs.includes(from.ref)) return { changed };
+    const sentence = blockedNote(from.ref, from.subject);
+    const newNote2 = currentNote.trim() ? `${currentNote}
+${sentence}` : sentence;
+    await ctx.client.patch(PATH[to.kind], to.id, { is_blocked: true, blocked_note: newNote2 });
+    changed.push("to:is_blocked", "to:blocked_note");
+    const blockedAttr2 = await currentAttr(ctx, projectId, to, "\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F");
+    if (await addRefToAttribute(ctx, to, blockedAttr2, from.ref)) changed.push("to:\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F");
+    await addComment(ctx, from.kind, from.id, blockerComment(to.ref, to.subject));
+    changed.push("from:comment");
+    const blockerAttr2 = await currentAttr(ctx, projectId, from, "\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442");
+    if (await addRefToAttribute(ctx, from, blockerAttr2, to.ref)) changed.push("from:\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442");
+    return { changed };
+  }
+  if (!noteRefs.includes(from.ref)) {
+    return { changed, hint: `\u0411\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438 #${from.ref} \u043D\u0435 \u0431\u044B\u043B\u043E \u2014 \u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u0447\u0435\u0433\u043E.` };
+  }
+  const remainingRefs = noteRefs.filter((ref) => ref !== from.ref);
+  const newNote = withoutRef(currentNote, from.ref);
+  await ctx.client.patch(PATH[to.kind], to.id, {
+    is_blocked: remainingRefs.length > 0,
+    blocked_note: newNote
+  });
+  changed.push("to:is_blocked", "to:blocked_note");
+  const blockedAttr = await currentAttr(ctx, projectId, to, "\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F");
+  if (await removeRefFromAttribute(ctx, to, blockedAttr, from.ref)) changed.push("to:\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F");
+  await addComment(ctx, from.kind, from.id, `\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043B #${to.ref}`);
+  changed.push("from:comment");
+  const blockerAttr = await currentAttr(ctx, projectId, from, "\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442");
+  if (await removeRefFromAttribute(ctx, from, blockerAttr, to.ref)) changed.push("from:\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442");
+  return { changed };
+}
+async function applyRelates(ctx, projectId, from, to, remove) {
+  const fromAttr = await currentAttr(ctx, projectId, from, "\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441");
+  const toAttr = await currentAttr(ctx, projectId, to, "\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441");
+  if (fromAttr.id === void 0 || toAttr.id === void 0) {
+    return {
+      changed: [],
+      hint: "\u0412 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435\u0442 \u043F\u043E\u043B\u044F \xAB\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441\xBB: \u043F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 #ref \u0432 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0438."
+    };
+  }
+  const changed = [];
+  if (!remove) {
+    if (await addRefToAttribute(ctx, from, fromAttr, to.ref)) changed.push("from:\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441");
+    if (await addRefToAttribute(ctx, to, toAttr, from.ref)) changed.push("to:\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441");
+  } else {
+    if (await removeRefFromAttribute(ctx, from, fromAttr, to.ref)) changed.push("from:\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441");
+    if (await removeRefFromAttribute(ctx, to, toAttr, from.ref)) changed.push("to:\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441");
+  }
+  return { changed };
+}
+function shapeEndpoint(point) {
+  return { ref: point.ref, kind: point.kind, subject: point.subject };
+}
+function registerLinkTool(server, ctx) {
+  defineTool(
+    server,
+    ctx,
+    {
+      name: "taiga_link",
+      description: "\u0421\u0432\u044F\u0437\u0430\u0442\u044C \u0434\u0432\u0435 \u0437\u0430\u043F\u0438\u0441\u0438: blocks \u2014 \u043F\u0435\u0440\u0432\u0430\u044F \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u0432\u0442\u043E\u0440\u0443\u044E, relates \u2014 \u043F\u0440\u043E\u0441\u0442\u043E \u0441\u0432\u044F\u0437\u0430\u043D\u044B; remove \u0441\u043D\u0438\u043C\u0430\u0435\u0442 \u0441\u0432\u044F\u0437\u044C.",
+      kind: "update",
+      input: {
+        project: PROJECT_SCHEMA,
+        from: external_exports.number().describe("#ref \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u044E\u0449\u0435\u0439 (\u0438\u043B\u0438 \u043F\u0435\u0440\u0432\u043E\u0439) \u0437\u0430\u043F\u0438\u0441\u0438."),
+        to: external_exports.number().describe("#ref \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u043E\u0439 (\u0438\u043B\u0438 \u0432\u0442\u043E\u0440\u043E\u0439) \u0437\u0430\u043F\u0438\u0441\u0438."),
+        type: external_exports.enum(["blocks", "relates"]),
+        remove: external_exports.boolean().optional().describe("\u0421\u043D\u044F\u0442\u044C \u0441\u0432\u044F\u0437\u044C.")
+      }
+    },
+    guard(async (args) => {
+      const a = args;
+      const projectId = await ctx.cache.resolveProject(a.project);
+      const type = a.type;
+      const remove = a.remove === true;
+      const from = await resolveEndpoint(ctx, projectId, a.from);
+      const to = await resolveEndpoint(ctx, projectId, a.to);
+      const result = type === "blocks" ? await applyBlocks(ctx, projectId, from, to, remove) : await applyRelates(ctx, projectId, from, to, remove);
+      return ok({
+        from: shapeEndpoint(from),
+        to: shapeEndpoint(to),
+        changed: result.changed,
+        ...result.hint ? { hint: result.hint } : {}
+      });
+    })
+  );
+}
+
 // src/tools/crud.ts
+function isLinkable(name) {
+  return name === "userstory" || name === "task";
+}
+function parseEstimate(raw) {
+  if (raw === void 0 || raw === null) return null;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+async function readLinks(ctx, projectId, resource, itemId, raw) {
+  const note = typeof raw.blocked_note === "string" ? raw.blocked_note : null;
+  const ids = await attributeIds(ctx, projectId, resource);
+  const blocksAttrId = ids.get("\u0411\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442");
+  const estimateAttrId = resource === "task" ? ids.get("\u041E\u0446\u0435\u043D\u043A\u0430") : void 0;
+  const values = blocksAttrId !== void 0 || estimateAttrId !== void 0 ? await readAttributes(ctx, resource, itemId) : null;
+  const result = {
+    blocked_by: refsFromLinks(note, null),
+    blocks: blocksAttrId === void 0 ? [] : refsFromLinks(null, values?.[String(blocksAttrId)])
+  };
+  if (resource === "task") {
+    result.estimate = estimateAttrId === void 0 ? null : parseEstimate(values?.[String(estimateAttrId)]);
+  }
+  return result;
+}
 async function buildLabels(ctx, def, projectId) {
   const wanted = def.labels ?? [];
   const resolved = await Promise.all(
@@ -22644,18 +23117,6 @@ async function applyEpicLink(ctx, projectId, storyId, epic, currentEpics) {
   const epicId = await resolveEpic(ctx, projectId, epic);
   await linkStoryToEpic(ctx, epicId, storyId);
 }
-async function resolvePoints(ctx, projectId, value) {
-  const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
-  const roles = await ctx.client.list(
-    "/roles",
-    { project: projectId, page_size: 1e3 }
-  );
-  const primary = roles.items.filter((role) => role.computable).sort((a, b) => a.order - b.order)[0];
-  if (!primary) {
-    throw new TaigaError("This project has no computable role to hold story points.");
-  }
-  return { [primary.id]: pointsId };
-}
 function registerCrudTools(server, ctx, def) {
   const idArgs = {
     id: external_exports.number().optional().describe(`Internal ${def.label} id.`),
@@ -22733,7 +23194,12 @@ function registerCrudTools(server, ctx, def) {
       const id = await locate(ctx, def, projectId, a);
       const raw = await ctx.client.get(`${def.path}/${id}`);
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, raw, asFieldMode(a.fields), labels));
+      const fieldMode = asFieldMode(a.fields);
+      const shaped = project(def.name, raw, fieldMode, labels);
+      if (fieldMode === "full" && isLinkable(def.name)) {
+        Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
+      }
+      return ok(shaped);
     })
   );
   defineTool(
@@ -22746,7 +23212,7 @@ function registerCrudTools(server, ctx, def) {
       kind: "create"
     },
     guard(async (args) => {
-      const { project: ref, sprint, points, epic, ...rest } = args;
+      const { project: ref, sprint, points, epic, estimate, role, ...rest } = args;
       const projectId = await ctx.cache.resolveProject(ref);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
@@ -22757,14 +23223,31 @@ function registerCrudTools(server, ctx, def) {
         payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== void 0) {
-        payload.points = await resolvePoints(ctx, projectId, points);
+        payload.points = await pointsPayload(
+          ctx,
+          projectId,
+          points
+        );
       }
-      const created = await ctx.client.post(def.path, payload);
+      const { row: created, recalcTarget } = await createWithRoleEstimate(
+        ctx,
+        projectId,
+        def.path,
+        payload,
+        role,
+        estimate
+      );
       if (typeof epic === "string" && epic !== "") {
         await applyEpicLink(ctx, projectId, created.id, epic, null);
       }
+      const storyPoints = recalcTarget ? await recalcStoryPoints(ctx, projectId, recalcTarget.storyId, recalcTarget.role) : null;
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, created, "slim", labels));
+      const shaped = project(def.name, created, "slim", labels);
+      if (typeof payload.description === "string") {
+        shaped.description = created.description ?? payload.description;
+      }
+      if (storyPoints) shaped.story_points = storyPoints;
+      return ok(shaped);
     })
   );
   defineTool(
@@ -22794,6 +23277,8 @@ function registerCrudTools(server, ctx, def) {
       const points = a.points;
       const epic = a.epic;
       const assignedUsers = a.assigned_users;
+      const estimate = a.estimate;
+      const role = a.role;
       for (const key of [
         "project",
         "id",
@@ -22804,7 +23289,9 @@ function registerCrudTools(server, ctx, def) {
         "sprint",
         "points",
         "epic",
-        "assigned_users"
+        "assigned_users",
+        "estimate",
+        "role"
       ]) {
         delete a[key];
       }
@@ -22816,7 +23303,7 @@ function registerCrudTools(server, ctx, def) {
         changes.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== void 0) {
-        changes.points = await resolvePoints(ctx, projectId, points);
+        changes.points = await pointsPayload(ctx, projectId, points);
       }
       if (assignedUsers !== void 0) {
         const ids = await Promise.all(
@@ -22824,7 +23311,7 @@ function registerCrudTools(server, ctx, def) {
         );
         changes.assigned_users = [...new Set(ids)];
       }
-      if (appendText !== void 0 || addTags !== void 0) {
+      if (appendText !== void 0 || addTags !== void 0 || role !== void 0) {
         const current = await ctx.client.get(
           `${def.path}/${id}`
         );
@@ -22838,8 +23325,12 @@ ${appendText}` : appendText;
           const base = Array.isArray(changes.tags) ? changes.tags : Array.isArray(current.tags) ? current.tags.map((t) => Array.isArray(t) ? t[0] : t) : [];
           changes.tags = [.../* @__PURE__ */ new Set([...base, ...addTags])];
         }
+        if (role !== void 0) {
+          const base = Array.isArray(changes.tags) ? changes.tags : Array.isArray(current.tags) ? current.tags.map((t) => Array.isArray(t) ? t[0] : t) : [];
+          changes.tags = withRoleTag(base, role);
+        }
       }
-      if (Object.keys(changes).length === 0 && epic === void 0) {
+      if (Object.keys(changes).length === 0 && epic === void 0 && estimate === void 0 && role === void 0) {
         throw new TaigaError(`Nothing to change on this ${def.label}.`);
       }
       const updated = Object.keys(changes).length > 0 ? await ctx.client.patch(def.path, id, changes) : await ctx.client.get(`${def.path}/${id}`);
@@ -22852,8 +23343,23 @@ ${appendText}` : appendText;
           updated.epics
         );
       }
+      if (typeof estimate === "number") {
+        const ids = await attributeIds(ctx, projectId, "task");
+        await writeAttributes(ctx, "task", id, {
+          [requireAttribute(ids, "\u041E\u0446\u0435\u043D\u043A\u0430")]: estimate
+        });
+      }
+      let storyPoints = null;
+      if (estimate !== void 0 || role !== void 0) {
+        const forRole = effectiveRole(role, updated.tags);
+        if (forRole && typeof updated.user_story === "number") {
+          storyPoints = await recalcStoryPoints(ctx, projectId, updated.user_story, forRole);
+        }
+      }
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, updated, "slim", labels));
+      const shaped = project(def.name, updated, "slim", labels);
+      if (storyPoints) shaped.story_points = storyPoints;
+      return ok(shaped);
     })
   );
   defineTool(
@@ -22886,90 +23392,6 @@ ${appendText}` : appendText;
   );
 }
 
-// src/tools/comment.ts
-var COMMENTABLE = {
-  userstory: { path: "/userstories", history: "userstory", resolverKey: "us" },
-  task: { path: "/tasks", history: "task", resolverKey: "task" },
-  issue: { path: "/issues", history: "issue", resolverKey: "issue" },
-  epic: { path: "/epics", history: "epic", resolverKey: "epic" }
-};
-var resourceArg = external_exports.enum(["userstory", "task", "issue", "epic"]).describe("Which kind of item the comment belongs to.");
-async function locateItem(ctx, resource, projectId, id, ref) {
-  if (typeof id === "number") return id;
-  if (typeof ref === "number") {
-    return ctx.cache.resolveRef(projectId, COMMENTABLE[resource].resolverKey, ref);
-  }
-  throw new TaigaError("Specify the item by `ref` (the #number) or `id`.");
-}
-function registerCommentTools(server, ctx) {
-  const common2 = {
-    project: PROJECT_SCHEMA,
-    resource: resourceArg,
-    id: external_exports.number().optional().describe("Internal item id."),
-    ref: external_exports.number().optional().describe("The #number shown in Taiga.")
-  };
-  defineTool(
-    server,
-    ctx,
-    {
-      name: "taiga_comment_list",
-      description: "List the comments on a user story, task, issue or epic, oldest first.",
-      input: common2,
-      kind: "read"
-    },
-    guard(async (args) => {
-      const a = args;
-      const resource = a.resource;
-      const projectId = await ctx.cache.resolveProject(a.project);
-      const id = await locateItem(
-        ctx,
-        resource,
-        projectId,
-        a.id,
-        a.ref
-      );
-      const history = await ctx.client.get(
-        `/history/${COMMENTABLE[resource].history}/${id}`,
-        { page_size: 1e3 }
-      );
-      const items = history.filter(
-        (entry) => typeof entry.comment === "string" && entry.comment !== "" && entry.delete_comment_date == null
-      ).map((entry) => ({
-        author: entry.user?.name ?? null,
-        created_at: entry.created_at,
-        comment: entry.comment
-      })).reverse();
-      return ok({ total: items.length, items });
-    })
-  );
-  defineTool(
-    server,
-    ctx,
-    {
-      name: "taiga_comment_add",
-      description: "Add a comment to a user story, task, issue or epic.",
-      input: { ...common2, comment: external_exports.string().min(1).describe("Comment text (Markdown).") },
-      kind: "create"
-    },
-    guard(async (args) => {
-      const a = args;
-      const resource = a.resource;
-      const projectId = await ctx.cache.resolveProject(a.project);
-      const id = await locateItem(
-        ctx,
-        resource,
-        projectId,
-        a.id,
-        a.ref
-      );
-      await ctx.client.patch(COMMENTABLE[resource].path, id, {
-        comment: a.comment
-      });
-      return ok({ added: true, resource, id });
-    })
-  );
-}
-
 // src/tools/search.ts
 function registerSearchTool(server, ctx) {
   defineTool(
@@ -22977,7 +23399,7 @@ function registerSearchTool(server, ctx) {
     ctx,
     {
       name: "taiga_search",
-      description: "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list.",
+      description: "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list. \u041F\u043E\u0438\u0441\u043A \u043E\u0442\u0434\u0430\u0451\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435 \u043F\u043E\u043B\u044F, \u0447\u0442\u043E \u0432\u0435\u0440\u043D\u0443\u043B\u0430 Taiga; \u0437\u0430 \u0434\u0435\u0442\u0430\u043B\u044F\u043C\u0438 \u2014 taiga_*_get.",
       input: {
         project: PROJECT_SCHEMA,
         text: external_exports.string().min(1).describe("Search query.")
@@ -23015,7 +23437,7 @@ function registerSearchTool(server, ctx) {
       const issueLabels = { status: issueStatus, priority, severity, type, member };
       const epicLabels = { status: epicStatus, member };
       const wikiLabels = { member };
-      const bucket = (key, resource, labels = {}) => projectMany(resource, found[key] ?? [], "slim", labels);
+      const bucket = (key, resource, labels = {}) => projectMany(resource, found[key] ?? [], "found", labels);
       return ok({
         count: found.count ?? 0,
         userstories: bucket("userstories", "userstory", userstoryLabels),
@@ -23034,6 +23456,12 @@ var BULK_RESOURCES = {
   userstory: USER_STORY,
   task: TASK,
   issue: ISSUE
+};
+var SINGLE_RESOURCE_FIELDS = {
+  sprint: "user stories",
+  points: "user stories",
+  role: "tasks",
+  estimate: "tasks"
 };
 async function buildLabels2(ctx, def, projectId) {
   const wanted = def.labels ?? [];
@@ -23056,8 +23484,7 @@ function registerBulkTool(server, ctx) {
           "Items to create. Each takes the same fields as the matching taiga_<resource>_create tool, e.g. {subject, description, status, tags}."
         )
       },
-      kind: "create",
-      confirm: true
+      kind: "create"
     },
     guard(async (args) => {
       const a = args;
@@ -23087,6 +23514,7 @@ function registerBulkTool(server, ctx) {
       }
       const created = [];
       const failed = [];
+      const rolePairs = /* @__PURE__ */ new Map();
       for (const item of a.items) {
         try {
           if (def.name !== "userstory" && item.epic !== void 0) {
@@ -23099,22 +23527,42 @@ function registerBulkTool(server, ctx) {
               `"epic" must be an epic subject given as a string, not ${typeof item.epic}.`
             );
           }
-          for (const field of ["sprint", "points"]) {
+          for (const [field, appliesTo] of Object.entries(SINGLE_RESOURCE_FIELDS)) {
             if (item[field] !== void 0 && def.createFields[field] === void 0) {
               throw new TaigaError(
-                `"${field}" applies to user stories only, not to ${def.label} items.`
+                `"${field}" applies to ${appliesTo} only, not to ${def.label} items.`
               );
             }
           }
+          if (item.role !== void 0 && typeof item.role !== "string") {
+            throw new TaigaError(`"role" must be given as a string, not ${typeof item.role}.`);
+          }
+          if (item.estimate !== void 0 && typeof item.estimate !== "number") {
+            throw new TaigaError(
+              `"estimate" must be given as a number, not ${typeof item.estimate}.`
+            );
+          }
+          let role = item.role;
+          if (role !== void 0) {
+            role = role.toLowerCase();
+            if (!ROLE_TAGS.includes(role)) {
+              throw new TaigaError(
+                `"role" must be one of ${ROLE_TAGS.join(", ")}, not "${item.role}".`
+              );
+            }
+          }
+          const estimate = item.estimate;
           const payload = { project: projectId };
           for (const [key, value] of Object.entries(item)) {
-            if (value === void 0 || key === "epic") continue;
+            if (value === void 0 || key === "epic" || key === "role" || key === "estimate") {
+              continue;
+            }
             if (key === "sprint") {
               payload.milestone = value === "" ? null : await resolveSprint(ctx, projectId, String(value));
               continue;
             }
             if (key === "points") {
-              payload.points = await resolvePoints(
+              payload.points = await pointsPayload(
                 ctx,
                 projectId,
                 value
@@ -23142,9 +23590,24 @@ function registerBulkTool(server, ctx) {
             if (resolution && "error" in resolution) throw new TaigaError(resolution.error);
             epicId = resolution?.id;
           }
-          const row = await ctx.client.post(def.path, payload);
+          const { row, recalcTarget } = await createWithRoleEstimate(
+            ctx,
+            projectId,
+            def.path,
+            payload,
+            role,
+            estimate
+          );
           if (epicId !== void 0) {
             await linkStoryToEpic(ctx, epicId, row.id);
+          }
+          if (recalcTarget) {
+            const storyExtra = row.user_story_extra_info;
+            rolePairs.set(`${recalcTarget.storyId}:${recalcTarget.role}`, {
+              storyId: recalcTarget.storyId,
+              role: recalcTarget.role,
+              ref: storyExtra?.ref ?? null
+            });
           }
           created.push(project(def.name, row, "slim", labels));
         } catch (error2) {
@@ -23154,12 +23617,75 @@ function registerBulkTool(server, ctx) {
           });
         }
       }
-      return ok({ created, failed });
+      const storyPoints = [];
+      for (const { storyId, role, ref } of rolePairs.values()) {
+        const result = await recalcStoryPoints(ctx, projectId, storyId, role);
+        if (result) storyPoints.push({ user_story: ref, ...result });
+      }
+      return ok(
+        storyPoints.length > 0 ? { created, failed, story_points: storyPoints } : { created, failed }
+      );
     })
   );
 }
 
 // src/tools/stats.ts
+var CAPACITY_PER_SPRINT = 40;
+var UNASSIGNED_LABEL = "\u0411\u0435\u0437 \u0438\u0441\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044F";
+var NO_ESTIMATE_ATTRIBUTE_NOTE = "\u041E\u0446\u0435\u043D\u043E\u043A \u0437\u0430\u0434\u0430\u0447 \u0432 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435\u0442: \u0437\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB \u0443 \u0437\u0430\u0434\u0430\u0447.";
+async function sprintLoad(ctx, projectId, milestoneId) {
+  const attrIds = await attributeIds(ctx, projectId, "task");
+  const estimateAttrId = attrIds.get("\u041E\u0446\u0435\u043D\u043A\u0430");
+  if (estimateAttrId === void 0) {
+    return { load: [], load_note: NO_ESTIMATE_ATTRIBUTE_NOTE };
+  }
+  const { items } = await ctx.client.list("/tasks", {
+    project: projectId,
+    milestone: milestoneId,
+    page_size: 1e3
+  });
+  const names = await ctx.cache.labelMap(projectId, "member");
+  const buckets = /* @__PURE__ */ new Map();
+  for (const task of items) {
+    const assignedTo = task.assigned_to;
+    const isAssigned = typeof assignedTo === "number";
+    const role = effectiveRole(void 0, task.tags) ?? null;
+    const key = isAssigned ? String(assignedTo) : "none";
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        member: isAssigned ? names.get(assignedTo) ?? `#${assignedTo}` : UNASSIGNED_LABEL,
+        member_id: isAssigned ? assignedTo : null,
+        points: 0,
+        unestimated: 0,
+        by_role: /* @__PURE__ */ new Map()
+      };
+      buckets.set(key, bucket);
+    }
+    const values = await readAttributes(ctx, "task", task.id);
+    const raw = values[String(estimateAttrId)];
+    const value = typeof raw === "number" ? raw : Number(raw);
+    if (raw !== void 0 && raw !== null && Number.isFinite(value)) {
+      bucket.points += value;
+      if (role !== null) bucket.by_role.set(role, (bucket.by_role.get(role) ?? 0) + value);
+    } else {
+      bucket.unestimated += 1;
+    }
+  }
+  const load = [...buckets.values()].map((bucket) => ({
+    member: bucket.member,
+    member_id: bucket.member_id,
+    points: bucket.points,
+    of_capacity: Math.round(bucket.points / CAPACITY_PER_SPRINT * 100) / 100,
+    unestimated_tasks: bucket.unestimated,
+    by_role: Object.fromEntries(bucket.by_role)
+  })).sort((a, b) => {
+    if (a.member === UNASSIGNED_LABEL && b.member !== UNASSIGNED_LABEL) return 1;
+    if (b.member === UNASSIGNED_LABEL && a.member !== UNASSIGNED_LABEL) return -1;
+    return a.member.localeCompare(b.member);
+  });
+  return { load };
+}
 function registerStatsTool(server, ctx) {
   defineTool(
     server,
@@ -23209,6 +23735,7 @@ function registerStatsTool(server, ctx) {
         0
       );
       const completed = stats.completed_points.reduce((s, v) => s + (v ?? 0), 0);
+      const { load, load_note } = await sprintLoad(ctx, projectId, match.id);
       return ok({
         scope: "sprint",
         name: stats.name,
@@ -23222,7 +23749,9 @@ function registerStatsTool(server, ctx) {
           day: day.day,
           open_points: day.open_points,
           optimal_points: day.optimal_points
-        }))
+        })),
+        load,
+        load_note
       });
     })
   );
@@ -23307,8 +23836,7 @@ function registerAttachmentTools(server, ctx) {
       name: "taiga_attachment_upload",
       description: "Attach a local file to a user story, task, issue or epic.",
       input: { ...common, file_path: external_exports.string().describe("Absolute path to the file to upload.") },
-      kind: "create",
-      confirm: true
+      kind: "create"
     },
     guard(async (args) => {
       const a = args;
@@ -23400,6 +23928,7 @@ function createServer(ctx = createContext()) {
   registerBulkTool(server, ctx);
   registerStatsTool(server, ctx);
   registerAttachmentTools(server, ctx);
+  registerLinkTool(server, ctx);
   return server;
 }
 

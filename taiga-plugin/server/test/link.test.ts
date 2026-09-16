@@ -247,6 +247,91 @@ describe("taiga_link: blocks", () => {
     expect(flagPatch?.changes.blocked_note).toBe("Блокируется #3 «Дизайн готов»");
   });
 
+  // Acceptance defect (scenarios 6 and 9): removing the LAST #ref from a
+  // link attribute used to send `attributes_values: {}` — Taiga rejects that
+  // outright with "This field cannot be blank." The custom-attribute value
+  // must survive as an empty string, not disappear as a deleted key.
+  it("remove последней ссылки оставляет атрибут пустым, а не удаляет ключ", async () => {
+    const ctx = fakeCtx({
+      items: {
+        "/userstories": {
+          1: { id: 1, subject: "Готовим API", is_blocked: false, blocked_note: "", __attrs: { "51": "#2" } },
+          2: {
+            id: 2,
+            subject: "Рисуем экран",
+            is_blocked: true,
+            blocked_note: "Блокируется #1 «Готовим API»",
+            __attrs: { "50": "#1" },
+          },
+        },
+        "/tasks": {},
+      },
+      refs: { 1: { kind: "us", id: 1 }, 2: { kind: "us", id: 2 } },
+      attributeDefs: {
+        "1:userstory": [
+          { id: 50, name: "Блокируется" },
+          { id: 51, name: "Блокирует" },
+        ],
+      },
+    });
+    const server = fakeServer();
+    registerLinkTool(server as never, ctx as never);
+    const link = server.handlers.get("taiga_link")!;
+
+    const result = await link({ from: 1, to: 2, type: "blocks", remove: true });
+    expect(result.isError).toBeUndefined();
+
+    const toAttrs = ctx.client.patch.mock.calls
+      .filter(([path, id]) => path === "/userstories/custom-attributes-values" && id === 2)
+      .map(([, , changes]) => changes)
+      .at(-1);
+    expect(toAttrs).toEqual({ attributes_values: { "50": "" } });
+
+    const fromAttrs = ctx.client.patch.mock.calls
+      .filter(([path, id]) => path === "/userstories/custom-attributes-values" && id === 1)
+      .map(([, , changes]) => changes)
+      .at(-1);
+    expect(fromAttrs).toEqual({ attributes_values: { "51": "" } });
+  });
+
+  it("remove одной из двух ссылок в атрибуте оставляет вторую", async () => {
+    const ctx = fakeCtx({
+      items: {
+        "/userstories": {
+          1: { id: 1, subject: "Готовим API", is_blocked: false, blocked_note: "" },
+          2: {
+            id: 2,
+            subject: "Рисуем экран",
+            is_blocked: true,
+            blocked_note: "Блокируется #1 «Готовим API»\nБлокируется #3 «Дизайн готов»",
+            __attrs: { "50": "#1, #3" },
+          },
+          3: { id: 3, subject: "Дизайн готов", is_blocked: false, blocked_note: "", __attrs: { "51": "#2" } },
+        },
+        "/tasks": {},
+      },
+      refs: { 1: { kind: "us", id: 1 }, 2: { kind: "us", id: 2 }, 3: { kind: "us", id: 3 } },
+      attributeDefs: {
+        "1:userstory": [
+          { id: 50, name: "Блокируется" },
+          { id: 51, name: "Блокирует" },
+        ],
+      },
+    });
+    const server = fakeServer();
+    registerLinkTool(server as never, ctx as never);
+    const link = server.handlers.get("taiga_link")!;
+
+    const result = await link({ from: 1, to: 2, type: "blocks", remove: true });
+    expect(result.isError).toBeUndefined();
+
+    const toAttrs = ctx.client.patch.mock.calls
+      .filter(([path, id]) => path === "/userstories/custom-attributes-values" && id === 2)
+      .map(([, , changes]) => changes)
+      .at(-1);
+    expect(toAttrs).toEqual({ attributes_values: { "50": "#3" } });
+  });
+
   it("пишет и снимает ссылки в атрибутах «Блокируется»/«Блокирует», когда они заведены", async () => {
     const ctx = fakeCtx({
       items: {

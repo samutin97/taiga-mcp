@@ -102,6 +102,16 @@ export async function writeAttributes(
     if (value === null) delete merged[id];
     else merged[id] = value;
   }
+  // Taiga rejects `attributes_values: {}` outright ("This field cannot be
+  // blank."), so a delete that would empty the whole map must not go
+  // through as a delete — e.g. taiga_link removing the last #ref from
+  // «Блокируется» on a story with no other custom fields. Keep the keys
+  // this call touched, blanked to an empty string, instead of dropping
+  // them: the field stays defined but empty rather than the write failing.
+  // `null` still means "delete" for a key that leaves other keys behind.
+  if (Object.keys(merged).length === 0 && Object.keys(values).length > 0) {
+    for (const id of Object.keys(values)) merged[id] = "";
+  }
   await ctx.client.patch(VALUES_PATH[resource], itemId, { attributes_values: merged });
 }
 

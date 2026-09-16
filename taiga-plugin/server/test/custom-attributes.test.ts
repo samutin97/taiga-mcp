@@ -100,7 +100,7 @@ describe("кастомные атрибуты", () => {
     ]);
   });
 
-  it("удаляет поле, когда значение null", async () => {
+  it("удаляет поле, когда значение null, но остаётся другое поле", async () => {
     const ctx = fakeCtx({
       "/tasks/custom-attributes-values/50": {
         attributes_values: { "9": 5, "11": "blocked" },
@@ -110,6 +110,40 @@ describe("кастомные атрибуты", () => {
     await writeAttributes(ctx as never, "task", 50, { 11: null });
     expect(ctx.patched).toEqual([
       { path: "/tasks/custom-attributes-values", id: 50, changes: { attributes_values: { "9": 5 } } },
+    ]);
+  });
+
+  // Taiga rejects `attributes_values: {}` outright ("This field cannot be
+  // blank."). Deleting the only remaining key — e.g. taiga_link removing the
+  // last #ref from «Блокируется» — must not send an empty payload: the
+  // touched key stays in the map, blanked, instead of being dropped.
+  it("не отправляет пустой attributes_values, когда удаление снимает последнее поле", async () => {
+    const ctx = fakeCtx({
+      "/tasks/custom-attributes-values/50": {
+        attributes_values: { "11": "#5" },
+        version: 3,
+      },
+    });
+    await expect(writeAttributes(ctx as never, "task", 50, { 11: null })).resolves.toBeUndefined();
+    expect(ctx.patched).toEqual([
+      { path: "/tasks/custom-attributes-values", id: 50, changes: { attributes_values: { "11": "" } } },
+    ]);
+  });
+
+  it("блокирует пустой payload даже при удалении сразу нескольких последних полей", async () => {
+    const ctx = fakeCtx({
+      "/tasks/custom-attributes-values/50": {
+        attributes_values: { "9": "#1", "11": "#2" },
+        version: 3,
+      },
+    });
+    await writeAttributes(ctx as never, "task", 50, { 9: null, 11: null });
+    expect(ctx.patched).toEqual([
+      {
+        path: "/tasks/custom-attributes-values",
+        id: 50,
+        changes: { attributes_values: { "9": "", "11": "" } },
+      },
     ]);
   });
 });
