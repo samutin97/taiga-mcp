@@ -24,6 +24,7 @@ const INVOCABLE_SKILLS = [
   "taiga-estimate",
   "taiga-test-plan",
   "taiga-backlog-health",
+  "taiga-requirements",
 ];
 
 /** The 7 cases whose voice is graded: voice/1..6 plus the voice holdout. */
