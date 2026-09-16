@@ -47,7 +47,7 @@ const dueDateUpdate = z.string().optional().describe('ISO date; "" clears it.');
 const pointsField = z
   .union([z.string(), z.record(z.string())])
   .optional()
-  .describe('Поинты: "5" — первой роли, {"Front":"5","Back":"3"} — по ролям.');
+  .describe('Points: "5" for the primary role, {"Front":"5","Back":"3"} per role.');
 
 export const USER_STORY: ResourceDef = {
   name: "userstory",
@@ -128,9 +128,9 @@ export const TASK: ResourceDef = {
     assigned_to: z.string().optional(),
     tags: tagsField,
     due_date: z.string().optional(),
-    estimate: z.number().optional().describe("Оценка в поинтах; пишется в поле «Оценка»."),
+    estimate: z.number().optional().describe("Estimate in points; written to the «Оценка» field."),
     role: z.enum(["front", "back", "ux", "design"]).optional()
-      .describe("Роль задачи; ставится тегом, прежний тег роли снимается."),
+      .describe("Task's role; stored as a tag, replacing any previous role tag."),
   },
   updateFields: {
     subject: z.string().optional(),
@@ -142,9 +142,9 @@ export const TASK: ResourceDef = {
     due_date: dueDateUpdate,
     is_blocked: z.boolean().optional(),
     blocked_note: z.string().optional(),
-    estimate: z.number().optional().describe("Оценка в поинтах; пишется в поле «Оценка»."),
+    estimate: z.number().optional().describe("Estimate in points; written to the «Оценка» field."),
     role: z.enum(["front", "back", "ux", "design"]).optional()
-      .describe("Роль задачи; ставится тегом, прежний тег роли снимается."),
+      .describe("Task's role; stored as a tag, replacing any previous role tag."),
   },
   lookups: [
     { field: "status", kind: "task-status" },

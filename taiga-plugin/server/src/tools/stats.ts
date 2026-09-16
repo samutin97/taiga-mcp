@@ -131,7 +131,8 @@ export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
       name: "taiga_stats",
       description:
         "Progress statistics. With `sprint` it returns that sprint's points, completed " +
-        "work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+        "work, a day-by-day burndown series and per-person load. Without it, project-wide " +
+        "totals and velocity.",
       input: {
         project: PROJECT_SCHEMA,
         sprint: z.string().optional()

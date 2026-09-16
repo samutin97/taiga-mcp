@@ -46,23 +46,25 @@ export function roundUpToScale(sum: number, scale: number[]): number {
  * userstory.points field actually requires.
  *
  * Verified live: Taiga stores points as `{ roleId: pointsEntryId }`, one
- * entry per computable role. Sending a bare string or number straight
- * through crashes the server with an opaque HTTP 500 instead of a
- * validation error.
+ * entry per computable role. Sending a bare value straight through crashes
+ * the server with an opaque HTTP 500 instead of a validation error.
  *
- * A bare string/number is written to the project's primary role (lowest
- * `order` among computable roles) — Taiga defaults any other computable
- * role to "unestimated" on create and leaves it untouched on update, so a
- * single human value maps onto the per-role model without the caller ever
- * seeing roles. An object keyed by role name (e.g. `{ Front: "5", Back: "3"
- * }`) estimates each named role separately; role names are matched
+ * A bare string is written to the project's primary role (lowest `order`
+ * among computable roles) — Taiga defaults any other computable role to
+ * "unestimated" on create and leaves it untouched on update, so a single
+ * human value maps onto the per-role model without the caller ever seeing
+ * roles. An object keyed by role name (e.g. `{ Front: "5", Back: "3" }`)
+ * estimates each named role separately; role names are matched
  * case-insensitively and trimmed, and an unknown role name is an error
- * listing the project's computable roles.
+ * listing the project's computable roles. The value's type matches the
+ * `points` tool field (see resources.ts's `pointsField`): a bare number was
+ * never actually reachable — the zod schema only accepts a string or a
+ * record of strings — so the type below no longer claims otherwise.
  */
 export async function pointsPayload(
   ctx: ToolContext,
   projectId: number,
-  value: string | number | Record<string, string | number>,
+  value: string | Record<string, string>,
 ): Promise<Record<string, number>> {
   const roles = await computableRoles(ctx, projectId);
   if (typeof value !== "object") {

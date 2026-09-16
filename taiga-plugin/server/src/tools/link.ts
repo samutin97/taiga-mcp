@@ -239,14 +239,15 @@ export function registerLinkTool(server: McpServer, ctx: ToolContext): void {
     {
       name: "taiga_link",
       description:
-        "Связать две записи: blocks — первая блокирует вторую, relates — просто связаны; remove снимает связь.",
+        "Link two records: blocks — the first blocks the second; relates — just related, " +
+        "and writes nothing if the project has no «Связано с» field. remove undoes the link.",
       kind: "update",
       input: {
         project: PROJECT_SCHEMA,
-        from: z.number().describe("#ref блокирующей (или первой) записи."),
-        to: z.number().describe("#ref заблокированной (или второй) записи."),
+        from: z.number().describe("#ref of the blocking (or first) record."),
+        to: z.number().describe("#ref of the blocked (or second) record."),
         type: z.enum(["blocks", "relates"]),
-        remove: z.boolean().optional().describe("Снять связь."),
+        remove: z.boolean().optional().describe("Undo the link."),
       },
     },
     guard(async (args) => {

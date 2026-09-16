@@ -27,6 +27,7 @@ const INVOCABLE_SKILLS = [
   "taiga-requirements",
   "taiga-distribute",
   "taiga-workflow",
+  "taiga-model",
 ];
 
 /** The 7 cases whose voice is graded: voice/1..6 plus the voice holdout. */
@@ -258,13 +259,11 @@ describe("evals suite structure", () => {
       true,
     );
 
-    const asAUserAfterEmbeddedNewline = jsonTraceEvidence(
-      "Сейчас руками.\n\nКак менеджер, я хочу заводить сам, чтобы не ждать",
-    );
-    expect(
-      re.test(asAUserAfterEmbeddedNewline),
-      "as-a-user after an embedded newline",
-    ).toBe(true);
+    // "as-a-user after an embedded newline" used to be checked here too, but
+    // that rule is gone from voice-rules.json (fix round, Important 2): the
+    // spec and skills/taiga-voice/voice.md now endorse the "Как <роль>, я
+    // хочу…" opening outright when the role is real, so it no longer
+    // belongs in the eval regex at all.
 
     const clean = jsonTraceEvidence(
       "Просто короткая заметка без всяких рубрик и шаблонов, обычным языком.",

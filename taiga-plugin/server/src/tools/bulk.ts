@@ -197,9 +197,7 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
               continue;
             }
             if (key === "points") {
-              payload.points = await pointsPayload(
-                ctx, projectId, value as string | number | Record<string, string | number>,
-              );
+              payload.points = await pointsPayload(ctx, projectId, value as string | Record<string, string>);
               continue;
             }
             const lookup = def.lookups.find((entry) => entry.field === key);

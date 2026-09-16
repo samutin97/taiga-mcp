@@ -22055,12 +22055,6 @@ var voice_rules_default = {
       flags: "iu"
     },
     {
-      id: "as-a-user",
-      reason: "\u0448\u0430\u0431\u043B\u043E\u043D \xAB\u041A\u0430\u043A <\u0440\u043E\u043B\u044C>, \u044F \u0445\u043E\u0447\u0443 \u2026 \u0447\u0442\u043E\u0431\u044B \u2026\xBB",
-      pattern: "^[ \\t]*(?:[-*\u2022>]|\\d+[.)])?[ \\t]*(?:\\*\\*|#+[ \\t]*|__)?(\u041A\u0430\u043A|As an?)\\s[^,\\n]{2,60},\\s*(\u044F \u0445\u043E\u0447\u0443|I want)",
-      flags: "imu"
-    },
-    {
       id: "bullet-wall",
       reason: "\u0441\u0442\u0435\u043D\u0430 \u0438\u0437 \u0431\u0443\u043B\u043B\u0435\u0442\u043E\u0432 (6 \u0438 \u0431\u043E\u043B\u044C\u0448\u0435 \u043F\u043E\u0434\u0440\u044F\u0434)",
       pattern: "(?:^[ \\t]*[-*\u2022][ \\t].*(?:\\n|$)){6,}",
@@ -22397,7 +22391,7 @@ function registerProjectTools(server, ctx) {
     ctx,
     {
       name: "taiga_project_schema",
-      description: "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Members include their username and role in the project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
+      description: "List the valid statuses, priorities, severities, issue types, points, roles, members and custom fields of a project. Members include their username and role in the project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
       input: { project: PROJECT_SCHEMA },
       kind: "read"
     },
@@ -22412,7 +22406,7 @@ function registerProjectTools(server, ctx) {
 var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
 var assigneeUpdate = external_exports.string().optional().describe('Assignee full name; "" unassigns.');
 var dueDateUpdate = external_exports.string().optional().describe('ISO date; "" clears it.');
-var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe('\u041F\u043E\u0438\u043D\u0442\u044B: "5" \u2014 \u043F\u0435\u0440\u0432\u043E\u0439 \u0440\u043E\u043B\u0438, {"Front":"5","Back":"3"} \u2014 \u043F\u043E \u0440\u043E\u043B\u044F\u043C.');
+var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe('Points: "5" for the primary role, {"Front":"5","Back":"3"} per role.');
 var USER_STORY = {
   name: "userstory",
   path: "/userstories",
@@ -22486,8 +22480,8 @@ var TASK = {
     assigned_to: external_exports.string().optional(),
     tags: tagsField,
     due_date: external_exports.string().optional(),
-    estimate: external_exports.number().optional().describe("\u041E\u0446\u0435\u043D\u043A\u0430 \u0432 \u043F\u043E\u0438\u043D\u0442\u0430\u0445; \u043F\u0438\u0448\u0435\u0442\u0441\u044F \u0432 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB."),
-    role: external_exports.enum(["front", "back", "ux", "design"]).optional().describe("\u0420\u043E\u043B\u044C \u0437\u0430\u0434\u0430\u0447\u0438; \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u0442\u0435\u0433\u043E\u043C, \u043F\u0440\u0435\u0436\u043D\u0438\u0439 \u0442\u0435\u0433 \u0440\u043E\u043B\u0438 \u0441\u043D\u0438\u043C\u0430\u0435\u0442\u0441\u044F.")
+    estimate: external_exports.number().optional().describe("Estimate in points; written to the \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB field."),
+    role: external_exports.enum(["front", "back", "ux", "design"]).optional().describe("Task's role; stored as a tag, replacing any previous role tag.")
   },
   updateFields: {
     subject: external_exports.string().optional(),
@@ -22499,8 +22493,8 @@ var TASK = {
     due_date: dueDateUpdate,
     is_blocked: external_exports.boolean().optional(),
     blocked_note: external_exports.string().optional(),
-    estimate: external_exports.number().optional().describe("\u041E\u0446\u0435\u043D\u043A\u0430 \u0432 \u043F\u043E\u0438\u043D\u0442\u0430\u0445; \u043F\u0438\u0448\u0435\u0442\u0441\u044F \u0432 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB."),
-    role: external_exports.enum(["front", "back", "ux", "design"]).optional().describe("\u0420\u043E\u043B\u044C \u0437\u0430\u0434\u0430\u0447\u0438; \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u0442\u0435\u0433\u043E\u043C, \u043F\u0440\u0435\u0436\u043D\u0438\u0439 \u0442\u0435\u0433 \u0440\u043E\u043B\u0438 \u0441\u043D\u0438\u043C\u0430\u0435\u0442\u0441\u044F.")
+    estimate: external_exports.number().optional().describe("Estimate in points; written to the \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB field."),
+    role: external_exports.enum(["front", "back", "ux", "design"]).optional().describe("Task's role; stored as a tag, replacing any previous role tag.")
   },
   lookups: [
     { field: "status", kind: "task-status" },
@@ -22721,7 +22715,7 @@ async function createWithRoleEstimate(ctx, projectId, path, payload, role, estim
   }
   return { row, recalcTarget };
 }
-async function recalcStoryPoints(ctx, projectId, storyId, role) {
+async function recalcStoryPoints(ctx, projectId, storyId, role, emptyMeansZero = false) {
   const ids = await attributeIds(ctx, projectId, "task");
   const estimateId = ids.get("\u041E\u0446\u0435\u043D\u043A\u0430");
   if (estimateId === void 0) return null;
@@ -22745,19 +22739,21 @@ async function recalcStoryPoints(ctx, projectId, storyId, role) {
       estimated += 1;
     }
   }
-  if (estimated === 0) return null;
+  if (estimated === 0 && !emptyMeansZero) return null;
   const roles = await computableRoles(ctx, projectId);
   const target = roles.find((row) => row.name.toLowerCase() === role);
   if (!target) return null;
   const scale = await pointScale(ctx, projectId);
-  const rounded = roundUpToScale(sum, scale);
+  const max = scale.length > 0 ? scale[scale.length - 1] : void 0;
+  const rounded = estimated === 0 ? 0 : roundUpToScale(sum, scale);
+  const warning = estimated > 0 && max !== void 0 && sum > max ? `\u0421\u0443\u043C\u043C\u0430 \u043E\u0446\u0435\u043D\u043E\u043A \u0440\u043E\u043B\u0438 \xAB${target.name}\xBB (${sum}) \u0431\u043E\u043B\u044C\u0448\u0435 \u043C\u0430\u043A\u0441\u0438\u043C\u0443\u043C\u0430 \u0448\u043A\u0430\u043B\u044B (${max}) \u2014 \u043F\u043E\u0441\u0442\u0430\u0432\u0438\u043B \u043C\u0430\u043A\u0441\u0438\u043C\u0443\u043C, \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u0442\u043E\u0438\u0442 \u043F\u0435\u0440\u0435\u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C.` : void 0;
   const story = await ctx.client.get(`/userstories/${storyId}`);
   const before = story.total_points ?? null;
   const pointsId = await ctx.cache.resolveLookup(projectId, "points", String(rounded));
   await ctx.client.patch("/userstories", storyId, {
     points: { ...story.points ?? {}, [target.id]: pointsId }
   });
-  return { role: target.name, from: before, to: rounded };
+  return { role: target.name, from: before, to: rounded, ...warning ? { warning } : {} };
 }
 
 // src/tools/comment.ts
@@ -22972,14 +22968,14 @@ function registerLinkTool(server, ctx) {
     ctx,
     {
       name: "taiga_link",
-      description: "\u0421\u0432\u044F\u0437\u0430\u0442\u044C \u0434\u0432\u0435 \u0437\u0430\u043F\u0438\u0441\u0438: blocks \u2014 \u043F\u0435\u0440\u0432\u0430\u044F \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u0432\u0442\u043E\u0440\u0443\u044E, relates \u2014 \u043F\u0440\u043E\u0441\u0442\u043E \u0441\u0432\u044F\u0437\u0430\u043D\u044B; remove \u0441\u043D\u0438\u043C\u0430\u0435\u0442 \u0441\u0432\u044F\u0437\u044C.",
+      description: "Link two records: blocks \u2014 the first blocks the second; relates \u2014 just related, and writes nothing if the project has no \xAB\u0421\u0432\u044F\u0437\u0430\u043D\u043E \u0441\xBB field. remove undoes the link.",
       kind: "update",
       input: {
         project: PROJECT_SCHEMA,
-        from: external_exports.number().describe("#ref \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u044E\u0449\u0435\u0439 (\u0438\u043B\u0438 \u043F\u0435\u0440\u0432\u043E\u0439) \u0437\u0430\u043F\u0438\u0441\u0438."),
-        to: external_exports.number().describe("#ref \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u043E\u0439 (\u0438\u043B\u0438 \u0432\u0442\u043E\u0440\u043E\u0439) \u0437\u0430\u043F\u0438\u0441\u0438."),
+        from: external_exports.number().describe("#ref of the blocking (or first) record."),
+        to: external_exports.number().describe("#ref of the blocked (or second) record."),
         type: external_exports.enum(["blocks", "relates"]),
-        remove: external_exports.boolean().optional().describe("\u0421\u043D\u044F\u0442\u044C \u0441\u0432\u044F\u0437\u044C.")
+        remove: external_exports.boolean().optional().describe("Undo the link.")
       }
     },
     guard(async (args) => {
@@ -23224,11 +23220,7 @@ function registerCrudTools(server, ctx, def) {
         payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== void 0) {
-        payload.points = await pointsPayload(
-          ctx,
-          projectId,
-          points
-        );
+        payload.points = await pointsPayload(ctx, projectId, points);
       }
       const { row: created, recalcTarget } = await createWithRoleEstimate(
         ctx,
@@ -23346,6 +23338,16 @@ ${appendText}` : appendText;
           changes.tags = withRoleTag(base, role);
         }
       }
+      const touchesPoints = def.name === "task" && (estimate !== void 0 || role !== void 0 || changes.user_story !== void 0);
+      let beforeRole;
+      let beforeStoryId;
+      let beforeStoryRef = null;
+      if (touchesPoints) {
+        const before = await loadCurrent();
+        beforeRole = effectiveRole(void 0, before.tags);
+        beforeStoryId = typeof before.user_story === "number" ? before.user_story : void 0;
+        beforeStoryRef = before.user_story_extra_info?.ref ?? null;
+      }
       if (Object.keys(changes).length === 0 && epic === void 0 && estimate === void 0 && role === void 0) {
         throw new TaigaError(`Nothing to change on this ${def.label}.`);
       }
@@ -23366,10 +23368,34 @@ ${appendText}` : appendText;
         });
       }
       let storyPoints = null;
-      if (estimate !== void 0 || role !== void 0) {
-        const forRole = effectiveRole(role, updated.tags);
-        if (forRole && typeof updated.user_story === "number") {
-          storyPoints = await recalcStoryPoints(ctx, projectId, updated.user_story, forRole);
+      if (touchesPoints) {
+        const afterRole = effectiveRole(role, updated.tags);
+        const afterStoryId = typeof updated.user_story === "number" ? updated.user_story : void 0;
+        const afterStoryRef = updated.user_story_extra_info?.ref ?? null;
+        const beforeKey = beforeStoryId !== void 0 && beforeRole !== void 0 ? `${beforeStoryId}:${beforeRole}` : void 0;
+        const afterKey = afterStoryId !== void 0 && afterRole !== void 0 ? `${afterStoryId}:${afterRole}` : void 0;
+        const pairs = [];
+        if (beforeKey !== void 0) {
+          pairs.push({
+            storyId: beforeStoryId,
+            role: beforeRole,
+            ref: beforeStoryRef,
+            leaving: beforeKey !== afterKey
+          });
+        }
+        if (afterKey !== void 0 && afterKey !== beforeKey) {
+          pairs.push({ storyId: afterStoryId, role: afterRole, ref: afterStoryRef, leaving: false });
+        }
+        const recalced = [];
+        for (const pair of pairs) {
+          const result = await recalcStoryPoints(ctx, projectId, pair.storyId, pair.role, pair.leaving);
+          if (result) recalced.push({ user_story: pair.ref, ...result });
+        }
+        if (recalced.length === 1) {
+          const { user_story: _unused, ...rest } = recalced[0];
+          storyPoints = rest;
+        } else if (recalced.length > 1) {
+          storyPoints = recalced;
         }
       }
       const labels = await buildLabels(ctx, def, projectId);
@@ -23403,8 +23429,19 @@ ${appendText}` : appendText;
       }
       const projectId = await ctx.cache.resolveProject(a.project);
       const id = await locate(ctx, def, projectId, a);
+      let pointsTarget;
+      if (def.name === "task") {
+        const current = await ctx.client.get(`${def.path}/${id}`);
+        const currentRole = effectiveRole(void 0, current.tags);
+        if (currentRole && typeof current.user_story === "number") {
+          pointsTarget = { storyId: current.user_story, role: currentRole };
+        }
+      }
       await ctx.client.remove(def.path, id);
-      return ok({ deleted: true, resource: def.name, id });
+      const storyPoints = pointsTarget ? await recalcStoryPoints(ctx, projectId, pointsTarget.storyId, pointsTarget.role, true) : null;
+      const result = { deleted: true, resource: def.name, id };
+      if (storyPoints) result.story_points = storyPoints;
+      return ok(result);
     })
   );
 }
@@ -23579,11 +23616,7 @@ function registerBulkTool(server, ctx) {
               continue;
             }
             if (key === "points") {
-              payload.points = await pointsPayload(
-                ctx,
-                projectId,
-                value
-              );
+              payload.points = await pointsPayload(ctx, projectId, value);
               continue;
             }
             const lookup = def.lookups.find((entry) => entry.field === key);
@@ -23709,7 +23742,7 @@ function registerStatsTool(server, ctx) {
     ctx,
     {
       name: "taiga_stats",
-      description: "Progress statistics. With `sprint` it returns that sprint's points, completed work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+      description: "Progress statistics. With `sprint` it returns that sprint's points, completed work, a day-by-day burndown series and per-person load. Without it, project-wide totals and velocity.",
       input: {
         project: PROJECT_SCHEMA,
         sprint: external_exports.string().optional().describe("Sprint name, e.g. 'Sprint 2'. Omit for project-wide stats.")
