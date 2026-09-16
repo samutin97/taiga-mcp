@@ -7,7 +7,12 @@ import type { ResourceDef } from "../resources.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
 import { attributeIds, requireAttribute, writeAttributes } from "../custom-attributes.js";
-import { ROLE_TAGS, withRoleTag, recalcStoryPoints, type RoleTag } from "../role-points.js";
+import {
+  withRoleTag,
+  recalcStoryPoints,
+  effectiveRole,
+  createWithRoleEstimate,
+} from "../role-points.js";
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -187,22 +192,6 @@ async function applyEpicLink(
   await linkStoryToEpic(ctx, epicId, storyId);
 }
 
-/**
- * Which role `recalcStoryPoints` should recompute after a task write: the
- * role this call just set, or — when only `estimate` changed — the role tag
- * the task already carries, read straight from the write's own response so
- * no extra request is needed.
- */
-export function effectiveRole(role: string | undefined, tags: unknown): RoleTag | undefined {
-  if (role !== undefined) return role as RoleTag;
-  if (!Array.isArray(tags)) return undefined;
-  for (const tag of tags) {
-    const name = String(Array.isArray(tag) ? tag[0] : tag).toLowerCase();
-    if ((ROLE_TAGS as readonly string[]).includes(name)) return name as RoleTag;
-  }
-  return undefined;
-}
-
 export function registerCrudTools(
   server: McpServer,
   ctx: ToolContext,
@@ -336,33 +325,21 @@ export function registerCrudTools(
           ctx, projectId, points as string | number | Record<string, string | number>,
         );
       }
-      // Checked before the task exists: if «Оценка» is missing, the caller
-      // gets the error with nothing created, instead of an orphaned task
-      // with no ref to clean up (R49).
-      let estimateAttrId: number | undefined;
-      if (typeof estimate === "number") {
-        const ids = await attributeIds(ctx, projectId, "task");
-        estimateAttrId = requireAttribute(ids, "Оценка");
-      }
-      if (role !== undefined) {
-        payload.tags = withRoleTag((payload.tags as string[] | undefined) ?? [], role as string);
-      }
-      const created = await ctx.client.post<Record<string, unknown>>(def.path, payload);
+      // «Оценка» (if `estimate` is given) is checked before anything is
+      // created, so a missing field errors with nothing created instead of
+      // leaving an orphaned task with no ref to clean up. Shared with
+      // taiga_bulk_create's per-item task creation — see createWithRoleEstimate.
+      const { row: created, recalcTarget } = await createWithRoleEstimate(
+        ctx, projectId, def.path, payload, role as string | undefined, estimate as number | undefined,
+      );
       // The link needs the story's id, so it can only happen after create
       // returns. An empty string here (nothing to unlink yet) is a no-op.
       if (typeof epic === "string" && epic !== "") {
         await applyEpicLink(ctx, projectId, created.id as number, epic, null);
       }
-      if (estimateAttrId !== undefined) {
-        await writeAttributes(ctx, "task", created.id as number, { [estimateAttrId]: estimate });
-      }
-      let storyPoints: Awaited<ReturnType<typeof recalcStoryPoints>> = null;
-      if (estimate !== undefined || role !== undefined) {
-        const forRole = effectiveRole(role as string | undefined, created.tags);
-        if (forRole && typeof created.user_story === "number") {
-          storyPoints = await recalcStoryPoints(ctx, projectId, created.user_story, forRole);
-        }
-      }
+      const storyPoints = recalcTarget
+        ? await recalcStoryPoints(ctx, projectId, recalcTarget.storyId, recalcTarget.role)
+        : null;
       const labels = await buildLabels(ctx, def, projectId);
       const shaped = project(def.name, created, "slim", labels);
       if (typeof payload.description === "string") {

@@ -4,11 +4,10 @@ import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
-import { resolveEpic, linkStoryToEpic, resolveSprint, effectiveRole } from "./crud.js";
+import { resolveEpic, linkStoryToEpic, resolveSprint } from "./crud.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
-import { attributeIds, requireAttribute, writeAttributes } from "../custom-attributes.js";
-import { withRoleTag, recalcStoryPoints, type RoleTag } from "../role-points.js";
+import { createWithRoleEstimate, recalcStoryPoints, ROLE_TAGS, type RoleTag } from "../role-points.js";
 
 const MAX_ITEMS = 50;
 
@@ -160,7 +159,14 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
           // Reached only for `resource: "task"` items — the loop above
           // already rejected `role`/`estimate` on any other resource. A bad
           // type here would otherwise reach `withRoleTag`/`writeAttributes`
-          // as a confusing low-level error instead of a clear one.
+          // as a confusing low-level error instead of a clear one. `role`
+          // is also normalised and checked against ROLE_TAGS here — the
+          // single-create tool gets this for free from its zod enum, but
+          // bulk items skip per-field schema validation entirely, so an
+          // unrecognised or wrongly-cased role (e.g. "Front") would
+          // otherwise tag the task fine (withRoleTag lowercases) while
+          // silently never being found by recalcStoryPoints, which compares
+          // against the lowercase tag it just wrote.
           if (item.role !== undefined && typeof item.role !== "string") {
             throw new TaigaError(`"role" must be given as a string, not ${typeof item.role}.`);
           }
@@ -169,7 +175,15 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
               `"estimate" must be given as a number, not ${typeof item.estimate}.`,
             );
           }
-          const role = item.role as string | undefined;
+          let role = item.role as string | undefined;
+          if (role !== undefined) {
+            role = role.toLowerCase();
+            if (!(ROLE_TAGS as readonly string[]).includes(role)) {
+              throw new TaigaError(
+                `"role" must be one of ${ROLE_TAGS.join(", ")}, not "${item.role}".`,
+              );
+            }
+          }
           const estimate = item.estimate as number | undefined;
 
           const payload: Record<string, unknown> = { project: projectId };
@@ -213,35 +227,25 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
             epicId = resolution?.id;
           }
 
-          // Checked before the task is created: mirrors taiga_task_create —
-          // if «Оценка» is missing, the item fails with nothing created,
-          // instead of leaving an orphaned task with no ref to clean up.
-          let estimateAttrId: number | undefined;
-          if (typeof estimate === "number") {
-            const ids = await attributeIds(ctx, projectId, "task");
-            estimateAttrId = requireAttribute(ids, "Оценка");
-          }
-          if (role !== undefined) {
-            payload.tags = withRoleTag((payload.tags as string[] | undefined) ?? [], role);
-          }
-
-          const row = await ctx.client.post<Record<string, unknown>>(def.path, payload);
+          // Same orchestration taiga_task_create uses — see
+          // createWithRoleEstimate in role-points.ts: checks «Оценка»
+          // exists before creating anything (if `estimate` is given), folds
+          // the role tag into `payload.tags` (if `role` is given), creates,
+          // writes the estimate, and reports which (story, role) pair — if
+          // any — owes a recalculation, batched below instead of run here.
+          const { row, recalcTarget } = await createWithRoleEstimate(
+            ctx, projectId, def.path, payload, role, estimate,
+          );
           if (epicId !== undefined) {
             await linkStoryToEpic(ctx, epicId, row.id as number);
           }
-          if (estimateAttrId !== undefined) {
-            await writeAttributes(ctx, "task", row.id as number, { [estimateAttrId]: estimate });
-          }
-          if (estimate !== undefined || role !== undefined) {
-            const forRole = effectiveRole(role, row.tags);
-            if (forRole && typeof row.user_story === "number") {
-              const storyExtra = row.user_story_extra_info as { ref?: number } | null | undefined;
-              rolePairs.set(`${row.user_story}:${forRole}`, {
-                storyId: row.user_story,
-                role: forRole,
-                ref: storyExtra?.ref ?? null,
-              });
-            }
+          if (recalcTarget) {
+            const storyExtra = row.user_story_extra_info as { ref?: number } | null | undefined;
+            rolePairs.set(`${recalcTarget.storyId}:${recalcTarget.role}`, {
+              storyId: recalcTarget.storyId,
+              role: recalcTarget.role,
+              ref: storyExtra?.ref ?? null,
+            });
           }
           created.push(project(def.name, row, "slim", labels));
         } catch (error) {

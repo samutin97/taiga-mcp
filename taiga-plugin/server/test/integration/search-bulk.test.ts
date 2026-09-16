@@ -477,7 +477,37 @@ describe("bulk create: оценка и роль задач", () => {
         type: "number",
       });
       attributeId = attribute.id;
+      // Otherwise the "field is missing" state fetched right after the
+      // delete above stays cached for up to 60s, poisoning any later test
+      // in this same process even though the field exists again now.
+      resetAttributeCache();
     }
+  });
+
+  it("нормализует регистр role и пересчёт поинтов всё равно срабатывает", async () => {
+    const story = await call("taiga_userstory_create", { subject: "Массовые задачи: регистр роли" });
+    const ref = track(story.json.ref);
+    const result = await call("taiga_bulk_create", {
+      resource: "task",
+      items: [{ subject: "Капс роль", user_story: ref, role: "Front", estimate: 2 }],
+    });
+    for (const item of result.json.created) trackTask(item.ref as number);
+
+    expect(result.json.created).toHaveLength(1);
+    expect(result.json.created[0].tags).toContain("front");
+    expect(result.json.story_points).toEqual([{ user_story: ref, role: "Front", from: null, to: 2 }]);
+  });
+
+  it("отклоняет неизвестную роль со списком допустимых значений", async () => {
+    const story = await call("taiga_userstory_create", { subject: "Массовые задачи: неизвестная роль" });
+    const ref = track(story.json.ref);
+    const result = await call("taiga_bulk_create", {
+      resource: "task",
+      items: [{ subject: "Плохая роль", user_story: ref, role: "manager" }],
+    });
+    expect(result.json.created).toHaveLength(0);
+    expect(result.json.failed).toHaveLength(1);
+    expect(result.json.failed[0].error).toMatch(/front, back, ux, design/);
   });
 
   it("отклоняет role/estimate у истории и issue, как остальные незнакомые поля", async () => {
