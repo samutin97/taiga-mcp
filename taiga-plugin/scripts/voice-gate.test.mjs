@@ -62,8 +62,9 @@ test("рубрика с двоеточием по-прежнему ловитс�
   assert.ok(findings.some((f) => f.id === "heading-label"));
 });
 
-test("markdown-заголовок больше не путают с рубрикой-протоколом, даже с двоеточием после слова", () => {
-  assert.deepEqual(ids(checkText("## Контекст: было так")), []);
+test("рубрика с двоеточием ловится и под markdown-заголовком", () => {
+  const findings = checkText("## Контекст: было так");
+  assert.ok(findings.some((f) => f.id === "heading-label"));
 });
 
 test("checkArgs walks top-level fields and items[]", () => {

@@ -1,7 +1,7 @@
 ---
 type: regex
 target: mock_calls
-pattern: (?:(?<![\p{L}\p{N}])(сгенерирован\p{L}*|generated (by|with)|as an ai|я\s*[—-]\s*ии|ассистент\p{L}* (подготовил|написал|составил|предлагает)|(с помощью|при помощи|силами) (ии|нейросет\p{L}*|claude|chatgpt|gpt|llm)|written by (claude|chatgpt|an? ai))(?![\p{L}\p{N}]))|(?:(?:^|\\n|\n|")[ \t]*(?:[-*•>]|\d+[.)])?[ \t]*(?:\*\*|__)?(Контекст|Задача|Цель|Описание|Критерии приёмки|Критерии приемки|Решение|Итог|Результат|Acceptance criteria|Context|Goal|Description|Summary|Steps|Solution|Шаги)(?:\*\*|__)?[ \t]*:)|(?:[\u2190-\u21FF\u2600-\u27BF\u2B00-\u2BFF\u{1F300}-\u{1FAFF}])|(?:(?:^|\\n|\n|")[ \t]*(?:[-*•>]|\d+[.)])?[ \t]*(?:\*\*|#+[ \t]*|__)?(Как|As an?)\s[^,\n]{2,60},\s*(я хочу|I want))
+pattern: (?:(?<![\p{L}\p{N}])(сгенерирован\p{L}*|generated (by|with)|as an ai|я\s*[—-]\s*ии|ассистент\p{L}* (подготовил|написал|составил|предлагает)|(с помощью|при помощи|силами) (ии|нейросет\p{L}*|claude|chatgpt|gpt|llm)|written by (claude|chatgpt|an? ai))(?![\p{L}\p{N}]))|(?:(?:^|\\n|\n|")[ \t]*(?:[-*•>]|\d+[.)])?[ \t]*(?:\*\*|#+[ \t]*|__)?(Контекст|Задача|Цель|Описание|Критерии приёмки|Критерии приемки|Решение|Итог|Результат|Acceptance criteria|Context|Goal|Description|Summary|Steps|Solution|Шаги)(?:\*\*|__)?[ \t]*:)|(?:[\u2190-\u21FF\u2600-\u27BF\u2B00-\u2BFF\u{1F300}-\u{1FAFF}])|(?:(?:^|\\n|\n|")[ \t]*(?:[-*•>]|\d+[.)])?[ \t]*(?:\*\*|#+[ \t]*|__)?(Как|As an?)\s[^,\n]{2,60},\s*(я хочу|I want))
 flags: imu
 match: not_contains
 ---
