@@ -270,6 +270,34 @@ describe("projections", () => {
     expect(result.status).toBe("Done");
   });
 
+  // Task 4: taiga_search projects with "found" instead of "slim" so a hit
+  // missing a field (Taiga's /search omits *_extra_info and whole keys the
+  // detail/list serializers include) comes back without that key at all,
+  // instead of a `[]`/`null` placeholder the model could mistake for Taiga's
+  // own answer.
+  describe('"found" mode', () => {
+    it("в режиме found не выдумывает отсутствующие поля", () => {
+      const hit = { ref: 7, subject: "Поиск", status: 3 };
+      const result = project("userstory", hit, "found", { status: new Map([[3, "New"]]) });
+      expect(Object.keys(result).sort()).toEqual(["ref", "status", "subject"]);
+      expect(result).not.toHaveProperty("tags");
+      expect(result).not.toHaveProperty("is_closed");
+    });
+
+    it("в режиме found отдаёт теги, когда они есть", () => {
+      const hit = { ref: 7, subject: "Поиск", tags: [["mcp", null]] };
+      expect(project("userstory", hit, "found").tags).toEqual(["mcp"]);
+    });
+
+    it("отдаёт настоящий null, когда Taiga явно прислала null, а не пропустила ключ", () => {
+      // assigned_to: null is Taiga saying "nobody assigned", not silence —
+      // it must survive, unlike a genuinely absent key.
+      const hit = { ref: 7, subject: "Поиск", assigned_to: null };
+      const result = project("userstory", hit, "found");
+      expect(result).toHaveProperty("assigned_to", null);
+    });
+  });
+
   it("returns null for missing priority field in issue", () => {
     const rawIssue = {
       id: 1,
