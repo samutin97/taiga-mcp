@@ -193,7 +193,7 @@ async function applyEpicLink(
  * the task already carries, read straight from the write's own response so
  * no extra request is needed.
  */
-function effectiveRole(role: string | undefined, tags: unknown): RoleTag | undefined {
+export function effectiveRole(role: string | undefined, tags: unknown): RoleTag | undefined {
   if (role !== undefined) return role as RoleTag;
   if (!Array.isArray(tags)) return undefined;
   for (const tag of tags) {
