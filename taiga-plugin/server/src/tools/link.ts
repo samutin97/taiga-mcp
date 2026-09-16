@@ -130,46 +130,63 @@ async function applyBlocks(
   from: Endpoint,
   to: Endpoint,
   remove: boolean,
-): Promise<string[]> {
-  const changed: string[] = [];
+): Promise<{ changed: string[]; hint?: string }> {
   const currentNote = typeof to.raw.blocked_note === "string" ? to.raw.blocked_note : "";
-  const blockedAttr = await currentAttr(ctx, projectId, to, "Блокируется");
-  const blockerAttr = await currentAttr(ctx, projectId, from, "Блокирует");
-  const existingRefs = refsFromLinks(currentNote, blockedAttr.value);
+  // Source of truth is the note (and the flag it travels with) — never the
+  // custom attribute. The attribute is a write destination only: someone can
+  // edit it by hand in Taiga's UI, and if that value fed back into this
+  // decision, a stale attribute ref could either keep is_blocked stuck true
+  // on an empty note, or make a genuinely new block look already-recorded
+  // and get silently skipped.
+  const noteRefs = refsFromLinks(currentNote, null);
+  const changed: string[] = [];
 
   if (!remove) {
+    // Nothing to do: the note already names this blocker. Also keeps a
+    // repeated identical call from posting "Блокирует #N" again.
+    if (noteRefs.includes(from.ref)) return { changed };
+
     const sentence = blockedNote(from.ref, from.subject);
-    const newNote = existingRefs.includes(from.ref)
-      ? currentNote
-      : currentNote.trim()
-        ? `${currentNote}\n${sentence}`
-        : sentence;
+    const newNote = currentNote.trim() ? `${currentNote}\n${sentence}` : sentence;
     await ctx.client.patch(PATH[to.kind], to.id, { is_blocked: true, blocked_note: newNote });
     changed.push("to:is_blocked", "to:blocked_note");
 
+    const blockedAttr = await currentAttr(ctx, projectId, to, "Блокируется");
     if (await addRefToAttribute(ctx, to, blockedAttr, from.ref)) changed.push("to:Блокируется");
 
     await addComment(ctx, from.kind, from.id, blockerComment(to.ref, to.subject));
     changed.push("from:comment");
 
+    const blockerAttr = await currentAttr(ctx, projectId, from, "Блокирует");
     if (await addRefToAttribute(ctx, from, blockerAttr, to.ref)) changed.push("from:Блокирует");
-  } else {
-    const remainingRefs = existingRefs.filter((ref) => ref !== from.ref);
-    const newNote = withoutRef(currentNote, from.ref);
-    await ctx.client.patch(PATH[to.kind], to.id, {
-      is_blocked: remainingRefs.length > 0,
-      blocked_note: newNote,
-    });
-    changed.push("to:is_blocked", "to:blocked_note");
 
-    if (await removeRefFromAttribute(ctx, to, blockedAttr, from.ref)) changed.push("to:Блокируется");
-
-    await addComment(ctx, from.kind, from.id, `Разблокировал #${to.ref}`);
-    changed.push("from:comment");
-
-    if (await removeRefFromAttribute(ctx, from, blockerAttr, to.ref)) changed.push("from:Блокирует");
+    return { changed };
   }
-  return changed;
+
+  // Nothing to do: this blocker isn't named in the note, so there is no
+  // link to remove.
+  if (!noteRefs.includes(from.ref)) {
+    return { changed, hint: `Блокировки #${from.ref} не было — менять нечего.` };
+  }
+
+  const remainingRefs = noteRefs.filter((ref) => ref !== from.ref);
+  const newNote = withoutRef(currentNote, from.ref);
+  await ctx.client.patch(PATH[to.kind], to.id, {
+    is_blocked: remainingRefs.length > 0,
+    blocked_note: newNote,
+  });
+  changed.push("to:is_blocked", "to:blocked_note");
+
+  const blockedAttr = await currentAttr(ctx, projectId, to, "Блокируется");
+  if (await removeRefFromAttribute(ctx, to, blockedAttr, from.ref)) changed.push("to:Блокируется");
+
+  await addComment(ctx, from.kind, from.id, `Разблокировал #${to.ref}`);
+  changed.push("from:comment");
+
+  const blockerAttr = await currentAttr(ctx, projectId, from, "Блокирует");
+  if (await removeRefFromAttribute(ctx, from, blockerAttr, to.ref)) changed.push("from:Блокирует");
+
+  return { changed };
 }
 
 async function applyRelates(
@@ -232,14 +249,14 @@ export function registerLinkTool(server: McpServer, ctx: ToolContext): void {
 
       const result =
         type === "blocks"
-          ? { changed: await applyBlocks(ctx, projectId, from, to, remove) }
+          ? await applyBlocks(ctx, projectId, from, to, remove)
           : await applyRelates(ctx, projectId, from, to, remove);
 
       return ok({
         from: shapeEndpoint(from),
         to: shapeEndpoint(to),
         changed: result.changed,
-        ...("hint" in result && result.hint ? { hint: result.hint } : {}),
+        ...(result.hint ? { hint: result.hint } : {}),
       });
     }),
   );
