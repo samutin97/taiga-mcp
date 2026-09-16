@@ -47,4 +47,27 @@ describe("stats", () => {
     expect(json.total_points).toBe(19.0);
     expect(json.completed_points).toBe(8.0);
   });
+
+  it("показывает загрузку людей в спринте", async () => {
+    const sprints = await call("taiga_sprint_list");
+    const stats = await call("taiga_stats", { sprint: sprints.json.items[0].name });
+    expect(stats.isError).toBe(false);
+    expect(Array.isArray(stats.json.load)).toBe(true);
+  });
+
+  // `mcp-sandbox` has no «Оценка» task custom field by default (see
+  // resources.test.ts / search-bulk.test.ts for the suites that create and
+  // delete it live) — so this needs no setup of its own, and exercises the
+  // "field missing" branch exactly as a fresh project would hit it.
+  it("без поля «Оценка» возвращает пустую загрузку с пояснением", async () => {
+    const { json } = await call("taiga_stats", { sprint: "Sprint 1" });
+    expect(json.load).toEqual([]);
+    expect(json.load_note).toBe("Оценок задач в проекте нет: заведите поле «Оценка» у задач.");
+  });
+
+  it("project-wide stats never carry load", async () => {
+    const { json } = await call("taiga_stats");
+    expect(json.load).toBeUndefined();
+    expect(json.load_note).toBeUndefined();
+  });
 });

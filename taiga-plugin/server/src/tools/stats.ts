@@ -3,6 +3,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { defineTool } from "../registry.js";
+import { attributeIds, readAttributes } from "../custom-attributes.js";
+import { effectiveRole } from "../role-points.js";
 
 interface MilestoneStats {
   name: string;
@@ -13,6 +15,97 @@ interface MilestoneStats {
   completed_userstories: number;
   completed_tasks: number;
   days: { day: string; name?: number; open_points: number; optimal_points: number }[];
+}
+
+/** Team capacity rule: 40 story points per developer per two-week sprint. */
+const CAPACITY_PER_SPRINT = 40;
+
+/** Bucket label for tasks nobody is assigned to — never merged into a person's load. */
+const UNASSIGNED_LABEL = "Без исполнителя";
+
+const NO_ESTIMATE_ATTRIBUTE_NOTE = "Оценок задач в проекте нет: заведите поле «Оценка» у задач.";
+
+interface LoadRow {
+  member: string;
+  role: string | null;
+  points: number;
+  of_capacity: number;
+  /** Tasks in this row with no «Оценка» value — hidden from `points`, not from the count. */
+  unestimated_tasks: number;
+}
+
+/**
+ * Who is carrying how much of a sprint, by (assignee, role) — the same
+ * split a role-distribution skill needs to know who has room. Grouped by
+ * role too, not just assignee: a member with tasks in two roles gets two
+ * rows rather than one row silently picking one role. Unassigned tasks are
+ * their own "member" bucket (`UNASSIGNED_LABEL`), never a person's load.
+ *
+ * Costs one request to check the «Оценка» field exists, one to list the
+ * sprint's tasks (skipped entirely if the field is missing), and one more
+ * per task to read its estimate.
+ */
+async function sprintLoad(
+  ctx: ToolContext,
+  projectId: number,
+  milestoneId: number,
+): Promise<{ load: LoadRow[]; load_note?: string }> {
+  const attrIds = await attributeIds(ctx, projectId, "task");
+  const estimateAttrId = attrIds.get("Оценка");
+  if (estimateAttrId === undefined) {
+    return { load: [], load_note: NO_ESTIMATE_ATTRIBUTE_NOTE };
+  }
+
+  const { items } = await ctx.client.list<Record<string, unknown>>("/tasks", {
+    project: projectId,
+    milestone: milestoneId,
+    page_size: 1000,
+  });
+  const names = await ctx.cache.labelMap(projectId, "member");
+
+  const buckets = new Map<
+    string,
+    { member: string; role: string | null; points: number; unestimated: number }
+  >();
+
+  for (const task of items) {
+    const assignedTo = task.assigned_to as number | null | undefined;
+    const role = effectiveRole(undefined, task.tags) ?? null;
+    const member =
+      typeof assignedTo === "number" ? (names.get(assignedTo) ?? `#${assignedTo}`) : UNASSIGNED_LABEL;
+    const key = `${assignedTo ?? "none"}:${role ?? "none"}`;
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { member, role, points: 0, unestimated: 0 };
+      buckets.set(key, bucket);
+    }
+
+    const values = await readAttributes(ctx, "task", task.id as number);
+    const raw = values[String(estimateAttrId)];
+    const value = typeof raw === "number" ? raw : Number(raw);
+    if (raw !== undefined && raw !== null && Number.isFinite(value)) {
+      bucket.points += value;
+    } else {
+      bucket.unestimated += 1;
+    }
+  }
+
+  const load = [...buckets.values()]
+    .map((bucket) => ({
+      member: bucket.member,
+      role: bucket.role,
+      points: bucket.points,
+      of_capacity: Math.round((bucket.points / CAPACITY_PER_SPRINT) * 100) / 100,
+      unestimated_tasks: bucket.unestimated,
+    }))
+    .sort((a, b) => {
+      if (a.member === UNASSIGNED_LABEL && b.member !== UNASSIGNED_LABEL) return 1;
+      if (b.member === UNASSIGNED_LABEL && a.member !== UNASSIGNED_LABEL) return -1;
+      return a.member.localeCompare(b.member) || (a.role ?? "").localeCompare(b.role ?? "");
+    });
+
+  return { load };
 }
 
 export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
@@ -70,6 +163,7 @@ export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
         0,
       );
       const completed = stats.completed_points.reduce((s, v) => s + (v ?? 0), 0);
+      const { load, load_note } = await sprintLoad(ctx, projectId, match.id);
       return ok({
         scope: "sprint",
         name: stats.name,
@@ -84,6 +178,8 @@ export function registerStatsTool(server: McpServer, ctx: ToolContext): void {
           open_points: day.open_points,
           optimal_points: day.optimal_points,
         })),
+        load,
+        load_note,
       });
     }),
   );
