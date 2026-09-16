@@ -1,7 +1,7 @@
 ---
 name: taiga-backlog-health
 description: Использовать, когда просят проверить бэклог или спринт на типичные проблемы: перегруз, зависшие и заблокированные истории, истории без пользы, слишком крупные истории, рост бэклога быстрее выпуска.
-allowed-tools: mcp__plugin_taiga_taiga__taiga_userstory_list, mcp__plugin_taiga_taiga__taiga_task_list, mcp__plugin_taiga_taiga__taiga_sprint_list, mcp__plugin_taiga_taiga__taiga_stats, mcp__plugin_taiga_taiga__taiga_project_get, Bash, Write, Read
+allowed-tools: mcp__plugin_taiga_taiga__taiga_userstory_list, mcp__plugin_taiga_taiga__taiga_userstory_get, mcp__plugin_taiga_taiga__taiga_task_list, mcp__plugin_taiga_taiga__taiga_task_get, mcp__plugin_taiga_taiga__taiga_sprint_list, mcp__plugin_taiga_taiga__taiga_stats, mcp__plugin_taiga_taiga__taiga_project_get, mcp__plugin_taiga_taiga__taiga_project_schema, Bash, Write, Read
 ---
 
 # Здоровье бэклога
@@ -30,6 +30,20 @@ allowed-tools: mcp__plugin_taiga_taiga__taiga_userstory_list, mcp__plugin_taiga_
 4. Если пользователь хочет действовать — переключайся на `taiga-backlog-grooming`
    (порядок, спринты), `taiga-prioritize` (приоритеты) или `taiga-estimate`
    (крупные истории). Сам этот скилл ничего не пишет.
+
+## Роли, оценки и связи
+
+`audit.mjs` тегов, оценок и связей не считает — в его выгрузке их нет. Эти
+проверки делай прямыми вызовами инструментов, а не по выгрузке:
+
+| Проверка | Инструмент |
+|---|---|
+| Задача без тега роли (`front`/`back`/`ux`/`design`) | `taiga_task_list`, поле `tags` |
+| Задача без оценки, когда в проекте есть «Оценка» | `taiga_stats` со `sprint` — есть ли поле вообще (`load`/`load_note`); по конкретной задаче — `taiga_task_get` с `fields: "full"`, поле `estimate` (список её не отдаёт) |
+| Поинты истории по роли расходятся с суммой оценок её задач | Сложи оценки по каждой роли (`taiga_task_list` по истории + `taiga_task_get ... fields: "full"` на каждую задачу), округли каждую по шкале (`taiga_project_schema`, `lookups.points`), сложи роли — и сравни с `points` истории (`taiga_userstory_get`) |
+| Блокировка, где блокирующая запись уже закрыта | `blocked_by` из `taiga_userstory_get`/`taiga_task_get` с `fields: "full"`; по каждому `#ref` — тот же `_get` (ref бывает и историей, и задачей — один из двух вернёт 404), поле `is_closed` |
+| Человек с нагрузкой больше 40 за спринт | `taiga_stats` со `sprint`, `load[].points`/`of_capacity` |
+| История с суммой по одной роли больше 40 | Та же сумма по роли из проверки выше, до сложения с другими ролями, — сравни с порогом 40, а не с записанными поинтами |
 
 ## Подача
 
