@@ -1,4 +1,5 @@
 import type { ToolContext } from "./context.js";
+import { TaigaError } from "./errors.js";
 
 export type AttrResource = "task" | "userstory";
 
@@ -50,6 +51,11 @@ export async function readAttributes(
   return row.attributes_values ?? {};
 }
 
+// Merges into a snapshot read before the PATCH, while the version that
+// guards the write is fetched later, inside `client.patch` itself — so a
+// change that lands between our read and that write is silently overwritten,
+// not rejected. Fine for a single writer per field (estimate, links); a
+// future bulk caller must not rely on this for concurrent-safe merges.
 export async function writeAttributes(
   ctx: ToolContext,
   resource: AttrResource,
@@ -68,9 +74,9 @@ export async function writeAttributes(
 export function requireAttribute(ids: Map<string, number>, name: string): number {
   const id = ids.get(name);
   if (id === undefined) {
-    throw new Error(
-      `В проекте нет поля «${name}». Заведите его в настройках Taiga: Admin → Attributes → Custom fields.`,
-    );
+    throw new TaigaError(`В проекте нет поля «${name}».`, {
+      hint: "Заведите его в Taiga: Admin → Attributes → Custom fields.",
+    });
   }
   return id;
 }
