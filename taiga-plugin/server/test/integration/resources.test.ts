@@ -231,6 +231,33 @@ describe("оценка и роль задачи", () => {
     const detail = await call("taiga_userstory_get", { ref, fields: "full" });
     expect(detail.json.total_points).toBe(5);
   });
+
+  // Task 23: taiga_task_get couldn't show what taiga_task_update wrote —
+  // a model planning a sprint had no way to see a task's cost. Verifies the
+  // full round trip (write via update, read back via get) and that the
+  // story-level card never grows an `estimate` key of its own.
+  it("оценка, записанная через update, видна в full-карточке задачи", async () => {
+    const story = await call("taiga_userstory_create", { subject: "История: оценка видна в get" });
+    const ref = track("userstory", story.json.ref);
+
+    const created = await call("taiga_task_create", { subject: "Задача без оценки", user_story: ref });
+    const taskRef = track("task", created.json.ref);
+
+    const before = await call("taiga_task_get", { ref: taskRef, fields: "full" });
+    expect(before.isError).toBe(false);
+    expect(before.json.estimate).toBeNull();
+
+    const updated = await call("taiga_task_update", { ref: taskRef, estimate: 5 });
+    expect(updated.isError).toBe(false);
+
+    const after = await call("taiga_task_get", { ref: taskRef, fields: "full" });
+    expect(after.json.estimate).toBe(5);
+
+    // «Оценка» is a task-only convention — the parent story's full card must
+    // not report an `estimate` key at all.
+    const storyDetail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(storyDetail.json).not.toHaveProperty("estimate");
+  });
 });
 
 describe("taiga_link: блокировка", () => {

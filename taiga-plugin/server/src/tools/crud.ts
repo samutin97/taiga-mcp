@@ -27,7 +27,7 @@ function isLinkable(name: ResourceDef["name"]): name is AttrResource {
 }
 
 /**
- * `blocked_by`/`blocks` for a `fields: "full"` card.
+ * `blocked_by`/`blocks`/`estimate` for a `fields: "full"` card.
  *
  * The note (`blocked_note`) is the sole source of truth for `blocked_by` —
  * task 10's truth rule holds here too, so a ref that landed only in the
@@ -38,6 +38,17 @@ function isLinkable(name: ResourceDef["name"]): name is AttrResource {
  * `blocks` has no note counterpart — it exists only in «Блокирует» — so a
  * project without that field honestly reports no blocks instead of guessing,
  * and the extra request to read it is skipped entirely.
+ *
+ * `estimate` is the numeric value of «Оценка», a task-only convention:
+ * nothing in this codebase reads or writes that field against a story (see
+ * createWithRoleEstimate/recalcStoryPoints in role-points.ts, both hardcoded
+ * to the "task" resource), so it is attached only when `resource === "task"` —
+ * a userstory's full card keeps just `blocked_by`/`blocks`, unchanged.
+ *
+ * `blocks` and `estimate` both live in the same attributes_values row, so
+ * this issues at most one `readAttributes` call per item — never one for
+ * each field — and only when at least one of «Блокирует»/«Оценка» is
+ * actually defined in the project.
  */
 async function readLinks(
   ctx: ToolContext,
@@ -45,15 +56,24 @@ async function readLinks(
   resource: AttrResource,
   itemId: number,
   raw: Record<string, unknown>,
-): Promise<{ blocked_by: number[]; blocks: number[] }> {
+): Promise<{ blocked_by: number[]; blocks: number[]; estimate?: number | null }> {
   const note = typeof raw.blocked_note === "string" ? raw.blocked_note : null;
   const ids = await attributeIds(ctx, projectId, resource);
   const blocksAttrId = ids.get("Блокирует");
-  const blocks =
-    blocksAttrId === undefined
-      ? []
-      : refsFromLinks(null, (await readAttributes(ctx, resource, itemId))[String(blocksAttrId)]);
-  return { blocked_by: refsFromLinks(note, null), blocks };
+  const estimateAttrId = resource === "task" ? ids.get("Оценка") : undefined;
+  const values =
+    blocksAttrId !== undefined || estimateAttrId !== undefined
+      ? await readAttributes(ctx, resource, itemId)
+      : null;
+  const result: { blocked_by: number[]; blocks: number[]; estimate?: number | null } = {
+    blocked_by: refsFromLinks(note, null),
+    blocks: blocksAttrId === undefined ? [] : refsFromLinks(null, values?.[String(blocksAttrId)]),
+  };
+  if (resource === "task") {
+    const value = estimateAttrId === undefined ? undefined : values?.[String(estimateAttrId)];
+    result.estimate = typeof value === "number" ? value : null;
+  }
+  return result;
 }
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
