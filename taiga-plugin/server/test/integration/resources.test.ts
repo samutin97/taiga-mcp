@@ -160,16 +160,16 @@ describe("all six resources", () => {
   });
 });
 
-// The stand's `mcp-sandbox` project has no «Оценка» task custom field yet.
-// This suite creates it through the raw Taiga API before the test runs and
-// deletes it afterwards — the plugin itself never creates custom attributes;
-// this is test setup only, standing in for Admin → Attributes → Custom
-// fields → number.
 function adminClient(): TaigaClient {
   const config: TaigaConfig = { url: STAND, username: "admin", password: "TaigaLocal2026!" };
   return new TaigaClient(config, new TaigaAuth(config));
 }
 
+// The stand's `mcp-sandbox` project has no «Оценка» task custom field yet.
+// This suite creates it through the raw Taiga API before the test runs and
+// deletes it afterwards — the plugin itself never creates custom attributes;
+// this is test setup only, standing in for Admin → Attributes → Custom
+// fields → number.
 describe("оценка и роль задачи", () => {
   let attributeId: number | undefined;
 
@@ -207,5 +207,27 @@ describe("оценка и роль задачи", () => {
 
     const detail = await call("taiga_userstory_get", { ref, fields: "full" });
     expect(detail.json.total_points).toBe(8);
+  });
+
+  // Fix round 1, item 1: `taiga_task_update({ ref, estimate })` alone used to
+  // trip the "Nothing to change" guard, since `estimate` never lands in
+  // `changes` — it is written separately via writeAttributes. This proves
+  // the primary "I estimated a task" flow works with no other field touched.
+  it("оценка задачи через update (без других полей) пересчитывает поинты роли", async () => {
+    const story = await call("taiga_userstory_create", { subject: "История: оценка отдельным вызовом" });
+    const ref = track("userstory", story.json.ref);
+
+    const created = await call("taiga_task_create", {
+      subject: "Бэкенд", user_story: ref, role: "back",
+    });
+    const taskRef = track("task", created.json.ref);
+    expect(created.json.story_points).toBeUndefined();
+
+    const updated = await call("taiga_task_update", { ref: taskRef, estimate: 5 });
+    expect(updated.isError).toBe(false);
+    expect(updated.json.story_points).toEqual({ role: "Back", from: null, to: 5 });
+
+    const detail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(detail.json.total_points).toBe(5);
   });
 });

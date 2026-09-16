@@ -336,6 +336,14 @@ export function registerCrudTools(
           ctx, projectId, points as string | number | Record<string, string | number>,
         );
       }
+      // Checked before the task exists: if «Оценка» is missing, the caller
+      // gets the error with nothing created, instead of an orphaned task
+      // with no ref to clean up (R49).
+      let estimateAttrId: number | undefined;
+      if (typeof estimate === "number") {
+        const ids = await attributeIds(ctx, projectId, "task");
+        estimateAttrId = requireAttribute(ids, "Оценка");
+      }
       if (role !== undefined) {
         payload.tags = withRoleTag((payload.tags as string[] | undefined) ?? [], role as string);
       }
@@ -345,11 +353,8 @@ export function registerCrudTools(
       if (typeof epic === "string" && epic !== "") {
         await applyEpicLink(ctx, projectId, created.id as number, epic, null);
       }
-      if (typeof estimate === "number") {
-        const ids = await attributeIds(ctx, projectId, "task");
-        await writeAttributes(ctx, "task", created.id as number, {
-          [requireAttribute(ids, "Оценка")]: estimate,
-        });
+      if (estimateAttrId !== undefined) {
+        await writeAttributes(ctx, "task", created.id as number, { [estimateAttrId]: estimate });
       }
       let storyPoints: Awaited<ReturnType<typeof recalcStoryPoints>> = null;
       if (estimate !== undefined || role !== undefined) {
@@ -474,7 +479,15 @@ export function registerCrudTools(
         }
       }
 
-      if (Object.keys(changes).length === 0 && epic === undefined) {
+      // `estimate` never lands in `changes` — it is written separately via
+      // writeAttributes below — so without this it would trip the guard and
+      // block the "just log an estimate" call, the primary use of this field.
+      if (
+        Object.keys(changes).length === 0 &&
+        epic === undefined &&
+        estimate === undefined &&
+        role === undefined
+      ) {
         throw new TaigaError(`Nothing to change on this ${def.label}.`);
       }
 
