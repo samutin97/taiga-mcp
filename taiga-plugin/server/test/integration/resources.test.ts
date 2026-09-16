@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { startClient } from "../helpers/mcp-client.js";
+import { TaigaAuth } from "../../src/auth.js";
+import { TaigaClient } from "../../src/client.js";
+import type { TaigaConfig } from "../../src/config.js";
 
 const STAND = "http://localhost:9000";
 
@@ -154,5 +157,55 @@ describe("all six resources", () => {
     });
     expect(updated.isError).toBe(false);
     expect(updated.json.user_story).toBe(secondRef);
+  });
+});
+
+// The stand's `mcp-sandbox` project has no «Оценка» task custom field yet.
+// This suite creates it through the raw Taiga API before the test runs and
+// deletes it afterwards — the plugin itself never creates custom attributes;
+// this is test setup only, standing in for Admin → Attributes → Custom
+// fields → number.
+function adminClient(): TaigaClient {
+  const config: TaigaConfig = { url: STAND, username: "admin", password: "TaigaLocal2026!" };
+  return new TaigaClient(config, new TaigaAuth(config));
+}
+
+describe("оценка и роль задачи", () => {
+  let attributeId: number | undefined;
+
+  beforeAll(async () => {
+    const client = adminClient();
+    const project = await client.get<{ id: number }>("/projects/by_slug", { slug: "mcp-sandbox" });
+    const attribute = await client.post<{ id: number }>("/task-custom-attributes", {
+      name: "Оценка",
+      project: project.id,
+      type: "number",
+    });
+    attributeId = attribute.id;
+  });
+
+  afterAll(async () => {
+    if (attributeId === undefined) return;
+    await adminClient().remove("/task-custom-attributes", attributeId).catch(() => {});
+  });
+
+  it("оценка задачи поднимает поинты роли у истории", async () => {
+    const story = await call("taiga_userstory_create", { subject: "История с задачами" });
+    const ref = track("userstory", story.json.ref);
+
+    const first = await call("taiga_task_create", {
+      subject: "Вёрстка", user_story: ref, role: "front", estimate: 3,
+    });
+    track("task", first.json.ref);
+    expect(first.json.story_points).toEqual({ role: "Front", from: null, to: 3 });
+
+    const second = await call("taiga_task_create", {
+      subject: "Состояния", user_story: ref, role: "front", estimate: 4,
+    });
+    track("task", second.json.ref);
+    expect(second.json.story_points).toEqual({ role: "Front", from: 3, to: 8 });
+
+    const detail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(detail.json.total_points).toBe(8);
   });
 });

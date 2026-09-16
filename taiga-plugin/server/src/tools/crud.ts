@@ -6,6 +6,8 @@ import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
+import { attributeIds, requireAttribute, writeAttributes } from "../custom-attributes.js";
+import { ROLE_TAGS, withRoleTag, recalcStoryPoints, type RoleTag } from "../role-points.js";
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -185,6 +187,22 @@ async function applyEpicLink(
   await linkStoryToEpic(ctx, epicId, storyId);
 }
 
+/**
+ * Which role `recalcStoryPoints` should recompute after a task write: the
+ * role this call just set, or — when only `estimate` changed — the role tag
+ * the task already carries, read straight from the write's own response so
+ * no extra request is needed.
+ */
+function effectiveRole(role: string | undefined, tags: unknown): RoleTag | undefined {
+  if (role !== undefined) return role as RoleTag;
+  if (!Array.isArray(tags)) return undefined;
+  for (const tag of tags) {
+    const name = String(Array.isArray(tag) ? tag[0] : tag).toLowerCase();
+    if ((ROLE_TAGS as readonly string[]).includes(name)) return name as RoleTag;
+  }
+  return undefined;
+}
+
 export function registerCrudTools(
   server: McpServer,
   ctx: ToolContext,
@@ -302,7 +320,7 @@ export function registerCrudTools(
       kind: "create",
     },
     guard(async (args) => {
-      const { project: ref, sprint, points, epic, ...rest } = args as Record<string, unknown>;
+      const { project: ref, sprint, points, epic, estimate, role, ...rest } = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(ref as string | undefined);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
@@ -318,17 +336,34 @@ export function registerCrudTools(
           ctx, projectId, points as string | number | Record<string, string | number>,
         );
       }
+      if (role !== undefined) {
+        payload.tags = withRoleTag((payload.tags as string[] | undefined) ?? [], role as string);
+      }
       const created = await ctx.client.post<Record<string, unknown>>(def.path, payload);
       // The link needs the story's id, so it can only happen after create
       // returns. An empty string here (nothing to unlink yet) is a no-op.
       if (typeof epic === "string" && epic !== "") {
         await applyEpicLink(ctx, projectId, created.id as number, epic, null);
       }
+      if (typeof estimate === "number") {
+        const ids = await attributeIds(ctx, projectId, "task");
+        await writeAttributes(ctx, "task", created.id as number, {
+          [requireAttribute(ids, "Оценка")]: estimate,
+        });
+      }
+      let storyPoints: Awaited<ReturnType<typeof recalcStoryPoints>> = null;
+      if (estimate !== undefined || role !== undefined) {
+        const forRole = effectiveRole(role as string | undefined, created.tags);
+        if (forRole && typeof created.user_story === "number") {
+          storyPoints = await recalcStoryPoints(ctx, projectId, created.user_story, forRole);
+        }
+      }
       const labels = await buildLabels(ctx, def, projectId);
       const shaped = project(def.name, created, "slim", labels);
       if (typeof payload.description === "string") {
         shaped.description = created.description ?? payload.description;
       }
+      if (storyPoints) shaped.story_points = storyPoints;
       return ok(shaped);
     }),
   );
@@ -374,8 +409,11 @@ export function registerCrudTools(
       const points = a.points as string | number | Record<string, string | number> | undefined;
       const epic = a.epic as string | undefined;
       const assignedUsers = a.assigned_users as string[] | undefined;
+      const estimate = a.estimate as number | undefined;
+      const role = a.role as string | undefined;
       for (const key of [
         "project", "id", "ref", "slug", "append_description", "add_tags", "sprint", "points", "epic", "assigned_users",
+        "estimate", "role",
       ]) {
         delete a[key];
       }
@@ -403,7 +441,7 @@ export function registerCrudTools(
         changes.assigned_users = [...new Set(ids)];
       }
 
-      if (appendText !== undefined || addTags !== undefined) {
+      if (appendText !== undefined || addTags !== undefined || role !== undefined) {
         // A value passed in this same call (already resolved into `changes`)
         // takes precedence over the server's current value as the base to
         // append/add onto — otherwise an explicit `description`/`tags` here
@@ -426,6 +464,14 @@ export function registerCrudTools(
               : [];
           changes.tags = [...new Set([...(base as string[]), ...addTags])];
         }
+        if (role !== undefined) {
+          const base = Array.isArray(changes.tags)
+            ? (changes.tags as string[])
+            : Array.isArray(current.tags)
+              ? (current.tags as unknown[]).map((t) => (Array.isArray(t) ? t[0] : t))
+              : [];
+          changes.tags = withRoleTag(base as string[], role);
+        }
       }
 
       if (Object.keys(changes).length === 0 && epic === undefined) {
@@ -446,8 +492,24 @@ export function registerCrudTools(
         );
       }
 
+      if (typeof estimate === "number") {
+        const ids = await attributeIds(ctx, projectId, "task");
+        await writeAttributes(ctx, "task", id, {
+          [requireAttribute(ids, "Оценка")]: estimate,
+        });
+      }
+      let storyPoints: Awaited<ReturnType<typeof recalcStoryPoints>> = null;
+      if (estimate !== undefined || role !== undefined) {
+        const forRole = effectiveRole(role, updated.tags);
+        if (forRole && typeof updated.user_story === "number") {
+          storyPoints = await recalcStoryPoints(ctx, projectId, updated.user_story, forRole);
+        }
+      }
+
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, updated, "slim", labels));
+      const shaped = project(def.name, updated, "slim", labels);
+      if (storyPoints) shaped.story_points = storyPoints;
+      return ok(shaped);
     }),
   );
 

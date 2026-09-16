@@ -128,6 +128,9 @@ export const TASK: ResourceDef = {
     assigned_to: z.string().optional(),
     tags: tagsField,
     due_date: z.string().optional(),
+    estimate: z.number().optional().describe("Оценка в поинтах; пишется в поле «Оценка»."),
+    role: z.enum(["front", "back", "ux", "design"]).optional()
+      .describe("Роль задачи; ставится тегом, прежний тег роли снимается."),
   },
   updateFields: {
     subject: z.string().optional(),
@@ -139,6 +142,9 @@ export const TASK: ResourceDef = {
     due_date: dueDateUpdate,
     is_blocked: z.boolean().optional(),
     blocked_note: z.string().optional(),
+    estimate: z.number().optional().describe("Оценка в поинтах; пишется в поле «Оценка»."),
+    role: z.enum(["front", "back", "ux", "design"]).optional()
+      .describe("Роль задачи; ставится тегом, прежний тег роли снимается."),
   },
   lookups: [
     { field: "status", kind: "task-status" },
