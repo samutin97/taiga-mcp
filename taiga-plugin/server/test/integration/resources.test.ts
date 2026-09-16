@@ -3,6 +3,7 @@ import { startClient } from "../helpers/mcp-client.js";
 import { TaigaAuth } from "../../src/auth.js";
 import { TaigaClient } from "../../src/client.js";
 import type { TaigaConfig } from "../../src/config.js";
+import { resetAttributeCache } from "../../src/custom-attributes.js";
 
 const STAND = "http://localhost:9000";
 
@@ -229,5 +230,129 @@ describe("оценка и роль задачи", () => {
 
     const detail = await call("taiga_userstory_get", { ref, fields: "full" });
     expect(detail.json.total_points).toBe(5);
+  });
+});
+
+describe("taiga_link: блокировка", () => {
+  it("блокировка видна с обеих сторон и снимается", async () => {
+    const blocker = await call("taiga_userstory_create", { subject: "Готовим API" });
+    const from = track("userstory", blocker.json.ref);
+    const blocked = await call("taiga_userstory_create", { subject: "Рисуем экран" });
+    const to = track("userstory", blocked.json.ref);
+
+    const linked = await call("taiga_link", { from, to, type: "blocks" });
+    expect(linked.isError).toBe(false);
+    expect(linked.json.from).toEqual({ ref: from, kind: "userstory", subject: "Готовим API" });
+    expect(linked.json.to).toEqual({ ref: to, kind: "userstory", subject: "Рисуем экран" });
+
+    const target = await call("taiga_userstory_get", { ref: to, fields: "full" });
+    expect(target.json.is_blocked).toBe(true);
+    expect(target.json.blocked_note).toContain(`#${from}`);
+
+    const comments = await call("taiga_comment_list", { resource: "userstory", ref: from });
+    expect(JSON.stringify(comments.json)).toContain(`#${to}`);
+
+    const removed = await call("taiga_link", { from, to, type: "blocks", remove: true });
+    expect(removed.isError).toBe(false);
+    const after = await call("taiga_userstory_get", { ref: to, fields: "full" });
+    expect(after.json.is_blocked).toBe(false);
+
+    const comments2 = await call("taiga_comment_list", { resource: "userstory", ref: from });
+    expect(JSON.stringify(comments2.json)).toContain("Разблокировал");
+  });
+
+  it("резолвит любую комбинацию истории и задачи", async () => {
+    const story = await call("taiga_userstory_create", { subject: "История-блокер" });
+    const from = track("userstory", story.json.ref);
+    const task = await call("taiga_task_create", { subject: "Задача-получатель" });
+    const to = track("task", task.json.ref);
+
+    const linked = await call("taiga_link", { from, to, type: "blocks" });
+    expect(linked.json.from.kind).toBe("userstory");
+    expect(linked.json.to.kind).toBe("task");
+
+    const target = await call("taiga_task_get", { ref: to, fields: "full" });
+    expect(target.json.is_blocked).toBe(true);
+    expect(target.json.blocked_note).toContain(`#${from}`);
+
+    const comments = await call("taiga_comment_list", { resource: "userstory", ref: from });
+    expect(JSON.stringify(comments.json)).toContain(`#${to}`);
+  });
+});
+
+// The stand's `mcp-sandbox` project has no link custom fields yet. This
+// suite creates «Блокируется»/«Блокирует»/«Связано с» through the raw Taiga
+// API before the test runs and deletes them afterwards — the same pattern
+// «Оценка» uses above — so taiga_link's custom-field path (not just the
+// flag/note/comment fallback) gets exercised on the live stand too.
+describe("taiga_link с полями «Блокируется»/«Блокирует»/«Связано с»", () => {
+  let blockedAttrId: number | undefined;
+  let blockerAttrId: number | undefined;
+  let relatedAttrId: number | undefined;
+
+  beforeAll(async () => {
+    const client = adminClient();
+    const project = await client.get<{ id: number }>("/projects/by_slug", { slug: "mcp-sandbox" });
+    blockedAttrId = (await client.post<{ id: number }>("/userstory-custom-attributes", {
+      name: "Блокируется", project: project.id, type: "text",
+    })).id;
+    blockerAttrId = (await client.post<{ id: number }>("/userstory-custom-attributes", {
+      name: "Блокирует", project: project.id, type: "text",
+    })).id;
+    relatedAttrId = (await client.post<{ id: number }>("/userstory-custom-attributes", {
+      name: "Связано с", project: project.id, type: "text",
+    })).id;
+    // attributeIds() caches project+resource attribute lists for a minute;
+    // earlier tests in this file already primed an empty userstory list.
+    resetAttributeCache();
+  });
+
+  afterAll(async () => {
+    const client = adminClient();
+    for (const id of [blockedAttrId, blockerAttrId, relatedAttrId]) {
+      if (id !== undefined) await client.remove("/userstory-custom-attributes", id).catch(() => {});
+    }
+    resetAttributeCache();
+  });
+
+  it("дописывает ссылки в «Блокируется» и «Блокирует»", async () => {
+    const blocker = await call("taiga_userstory_create", { subject: "Блокер с полями" });
+    const from = track("userstory", blocker.json.ref);
+    const blocked = await call("taiga_userstory_create", { subject: "Заблокированный с полями" });
+    const to = track("userstory", blocked.json.ref);
+
+    const linked = await call("taiga_link", { from, to, type: "blocks" });
+    expect(linked.json.changed).toEqual(expect.arrayContaining(["to:Блокируется", "from:Блокирует"]));
+
+    const client = adminClient();
+    const toDetail = await call("taiga_userstory_get", { ref: to, fields: "full" });
+    const toValues = await client.get<{ attributes_values: Record<string, unknown> }>(
+      `/userstories/custom-attributes-values/${toDetail.json.id}`,
+    );
+    expect(toValues.attributes_values[String(blockedAttrId)]).toBe(`#${from}`);
+
+    const fromDetail = await call("taiga_userstory_get", { ref: from, fields: "full" });
+    const fromValues = await client.get<{ attributes_values: Record<string, unknown> }>(
+      `/userstories/custom-attributes-values/${fromDetail.json.id}`,
+    );
+    expect(fromValues.attributes_values[String(blockerAttrId)]).toBe(`#${to}`);
+  });
+
+  it("пишет ссылки в «Связано с» обеим сторонам", async () => {
+    const first = await call("taiga_userstory_create", { subject: "Первая связанная" });
+    const from = track("userstory", first.json.ref);
+    const second = await call("taiga_userstory_create", { subject: "Вторая связанная" });
+    const to = track("userstory", second.json.ref);
+
+    const linked = await call("taiga_link", { from, to, type: "relates" });
+    expect(linked.json.hint).toBeUndefined();
+    expect(linked.json.changed.sort()).toEqual(["from:Связано с", "to:Связано с"]);
+
+    const client = adminClient();
+    const fromDetail = await call("taiga_userstory_get", { ref: from, fields: "full" });
+    const fromValues = await client.get<{ attributes_values: Record<string, unknown> }>(
+      `/userstories/custom-attributes-values/${fromDetail.json.id}`,
+    );
+    expect(fromValues.attributes_values[String(relatedAttrId)]).toBe(`#${to}`);
   });
 });

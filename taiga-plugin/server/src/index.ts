@@ -9,6 +9,7 @@ import { registerSearchTool } from "./tools/search.js";
 import { registerBulkTool } from "./tools/bulk.js";
 import { registerStatsTool } from "./tools/stats.js";
 import { registerAttachmentTools } from "./tools/attachment.js";
+import { registerLinkTool } from "./tools/link.js";
 
 export function createServer(ctx: ToolContext = createContext()): McpServer {
   const server = new McpServer({ name: "taiga", version: "0.2.0" });
@@ -20,5 +21,6 @@ export function createServer(ctx: ToolContext = createContext()): McpServer {
   registerBulkTool(server, ctx);
   registerStatsTool(server, ctx);
   registerAttachmentTools(server, ctx);
+  registerLinkTool(server, ctx);
   return server;
 }

@@ -51,6 +51,6 @@ describe("hooks.json", () => {
     const [voice, upload] = hooks.hooks.PreToolUse;
     expect(matched(voice.matcher, names)).toEqual(expected);
     expect(matched(upload.matcher, names)).toEqual(["taiga_attachment_upload"]);
-    expect(matched(hooks.hooks.PostToolUse[0].matcher, names)).toHaveLength(42);
+    expect(matched(hooks.hooks.PostToolUse[0].matcher, names)).toHaveLength(43);
   });
 });

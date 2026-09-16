@@ -1391,6 +1391,57 @@
       }
     },
     {
+      "name": "taiga_link",
+      "description": "Связать две записи: blocks — первая блокирует вторую, relates — просто связаны; remove снимает связь.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "from": {
+            "type": "number",
+            "description": "#ref блокирующей (или первой) записи."
+          },
+          "to": {
+            "type": "number",
+            "description": "#ref заблокированной (или второй) записи."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "blocks",
+              "relates"
+            ]
+          },
+          "remove": {
+            "type": "boolean",
+            "description": "Снять связь."
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "type"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "taiga_sprint_list",
       "description": "List sprint items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
       "inputSchema": {

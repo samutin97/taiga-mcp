@@ -12,7 +12,7 @@ export const CONFIRMED = [...RESOURCES.map((r) => `taiga_${r}_delete`)];
 
 function expectedFor(name: string) {
   if (name.endsWith("_delete")) return DESTRUCTIVE;
-  if (name.endsWith("_update")) return UPDATE;
+  if (name.endsWith("_update") || name === "taiga_link") return UPDATE;
   if (
     name.endsWith("_create") ||
     name === "taiga_comment_add" ||
@@ -22,10 +22,10 @@ function expectedFor(name: string) {
 }
 
 describe("tool annotations", () => {
-  it("annotates all 42 tools by kind", async () => {
+  it("annotates all 43 tools by kind", async () => {
     const client = await startClient();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(42);
+    expect(tools).toHaveLength(43);
     for (const tool of tools) {
       expect(tool.annotations, `${tool.name} has no annotations`).toEqual(expectedFor(tool.name));
       expect(tool.annotations, `${tool.name} carries a title`).not.toHaveProperty("title");
