@@ -50,6 +50,22 @@ test("soft: rubrics prefixed with a list marker or a quote, and the widened emoj
   assert.equal(checkText("Починил логин — теперь «вход» работает, № задачи не менялся…").length, 0, "dash, guillemets, numero sign, ellipsis are not emoji or rubrics");
 });
 
+test("рубрика-заголовок в описании проходит", () => {
+  const findings = checkText(
+    "## Описание\n\nЧтобы поддержка перестала сбрасывать пароли руками.\n\n## Критерии приёмки\n\nПисьмо приходит за минуту.",
+  );
+  assert.deepEqual(findings.filter((f) => f.id === "heading-label"), []);
+});
+
+test("рубрика с двоеточием по-прежнему ловится", () => {
+  const findings = checkText("Контекст: провёл проверку функционала.");
+  assert.ok(findings.some((f) => f.id === "heading-label"));
+});
+
+test("markdown-заголовок больше не путают с рубрикой-протоколом, даже с двоеточием после слова", () => {
+  assert.deepEqual(ids(checkText("## Контекст: было так")), []);
+});
+
 test("checkArgs walks top-level fields and items[]", () => {
   const findings = checkArgs({
     subject: "Готово ✅",
