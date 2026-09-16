@@ -18,6 +18,7 @@ import {
   recalcStoryPoints,
   effectiveRole,
   createWithRoleEstimate,
+  type RoleTag,
 } from "../role-points.js";
 import { refsFromLinks, MANUAL_UNBLOCK_HINT } from "./link.js";
 
@@ -403,9 +404,7 @@ export function registerCrudTools(
         payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
-        payload.points = await pointsPayload(
-          ctx, projectId, points as string | number | Record<string, string | number>,
-        );
+        payload.points = await pointsPayload(ctx, projectId, points as string | Record<string, string>);
       }
       // «Оценка» (if `estimate` is given) is checked before anything is
       // created, so a missing field errors with nothing created instead of
@@ -470,7 +469,7 @@ export function registerCrudTools(
       const appendText = a.append_description as string | undefined;
       const addTags = a.add_tags as string[] | undefined;
       const sprint = a.sprint as string | undefined;
-      const points = a.points as string | number | Record<string, string | number> | undefined;
+      const points = a.points as string | Record<string, string> | undefined;
       const epic = a.epic as string | undefined;
       const assignedUsers = a.assigned_users as string[] | undefined;
       const estimate = a.estimate as number | undefined;
@@ -563,6 +562,26 @@ export function registerCrudTools(
         }
       }
 
+      // A role change, a story move (user_story) or an estimate write can
+      // each shift which (story, role) pair owes this task's estimate.
+      // Recomputing only the pair the task ends up in (the old code) leaves
+      // the pair it *left* stale — still counting an estimate that no
+      // longer belongs there. Snapshot the role/story the task carried
+      // before this write; `updated` below gives the values after it.
+      const touchesPoints =
+        def.name === "task" &&
+        (estimate !== undefined || role !== undefined || changes.user_story !== undefined);
+      let beforeRole: RoleTag | undefined;
+      let beforeStoryId: number | undefined;
+      let beforeStoryRef: number | null = null;
+      if (touchesPoints) {
+        const before = await loadCurrent();
+        beforeRole = effectiveRole(undefined, before.tags);
+        beforeStoryId = typeof before.user_story === "number" ? before.user_story : undefined;
+        beforeStoryRef =
+          (before.user_story_extra_info as { ref?: number } | null | undefined)?.ref ?? null;
+      }
+
       // `estimate` never lands in `changes` — it is written separately via
       // writeAttributes below — so without this it would trip the guard and
       // block the "just log an estimate" call, the primary use of this field.
@@ -595,11 +614,56 @@ export function registerCrudTools(
           [requireAttribute(ids, "Оценка")]: estimate,
         });
       }
-      let storyPoints: Awaited<ReturnType<typeof recalcStoryPoints>> = null;
-      if (estimate !== undefined || role !== undefined) {
-        const forRole = effectiveRole(role, updated.tags);
-        if (forRole && typeof updated.user_story === "number") {
-          storyPoints = await recalcStoryPoints(ctx, projectId, updated.user_story, forRole);
+      // Every (story, role) pair this write actually touched, deduplicated:
+      // the pair the task left (if different from where it ends up) and
+      // the pair it ends up in. `leaving: true` tells recalcStoryPoints to
+      // write zero instead of leaving a stale sum when nothing of that role
+      // remains — never passed for the pair the task is *entering*, so a
+      // role/estimate tagged for the first time still shows nothing until
+      // it actually has an estimate (see role-points.ts).
+      let storyPoints: unknown = null;
+      if (touchesPoints) {
+        const afterRole = effectiveRole(role, updated.tags);
+        const afterStoryId = typeof updated.user_story === "number" ? updated.user_story : undefined;
+        const afterStoryRef =
+          (updated.user_story_extra_info as { ref?: number } | null | undefined)?.ref ?? null;
+
+        const beforeKey =
+          beforeStoryId !== undefined && beforeRole !== undefined
+            ? `${beforeStoryId}:${beforeRole}`
+            : undefined;
+        const afterKey =
+          afterStoryId !== undefined && afterRole !== undefined
+            ? `${afterStoryId}:${afterRole}`
+            : undefined;
+
+        const pairs: { storyId: number; role: RoleTag; ref: number | null; leaving: boolean }[] = [];
+        if (beforeKey !== undefined) {
+          pairs.push({
+            storyId: beforeStoryId!,
+            role: beforeRole!,
+            ref: beforeStoryRef,
+            leaving: beforeKey !== afterKey,
+          });
+        }
+        if (afterKey !== undefined && afterKey !== beforeKey) {
+          pairs.push({ storyId: afterStoryId!, role: afterRole!, ref: afterStoryRef, leaving: false });
+        }
+
+        const recalced: Array<{ user_story: number | null } & NonNullable<Awaited<ReturnType<typeof recalcStoryPoints>>>> = [];
+        for (const pair of pairs) {
+          const result = await recalcStoryPoints(ctx, projectId, pair.storyId, pair.role, pair.leaving);
+          if (result) recalced.push({ user_story: pair.ref, ...result });
+        }
+        // A single affected pair keeps the plain `{role, from, to}` shape
+        // every existing caller expects; only when the task actually moved
+        // between two distinct pairs does the array (with `user_story` to
+        // tell them apart) show up at all.
+        if (recalced.length === 1) {
+          const { user_story: _unused, ...rest } = recalced[0];
+          storyPoints = rest;
+        } else if (recalced.length > 1) {
+          storyPoints = recalced;
         }
       }
 
@@ -640,8 +704,31 @@ export function registerCrudTools(
       }
       const projectId = await ctx.cache.resolveProject(a.project as string | undefined);
       const id = await locate(ctx, def, projectId, a);
+
+      // A deleted task drops out of the (story, role) query recalcStoryPoints
+      // runs, so its role and story must be read before the delete — otherwise
+      // the story it leaves keeps counting an estimate for a task that no
+      // longer exists. `leaving: true` (recalcStoryPoints' emptyMeansZero)
+      // writes zero for that role instead of leaving the stale sum in place
+      // when this was the last estimated task of that role on the story.
+      let pointsTarget: { storyId: number; role: RoleTag } | undefined;
+      if (def.name === "task") {
+        const current = await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
+        const currentRole = effectiveRole(undefined, current.tags);
+        if (currentRole && typeof current.user_story === "number") {
+          pointsTarget = { storyId: current.user_story, role: currentRole };
+        }
+      }
+
       await ctx.client.remove(def.path, id);
-      return ok({ deleted: true, resource: def.name, id });
+
+      const storyPoints = pointsTarget
+        ? await recalcStoryPoints(ctx, projectId, pointsTarget.storyId, pointsTarget.role, true)
+        : null;
+
+      const result: Record<string, unknown> = { deleted: true, resource: def.name, id };
+      if (storyPoints) result.story_points = storyPoints;
+      return ok(result);
     }),
   );
 }

@@ -258,6 +258,34 @@ describe("оценка и роль задачи", () => {
     const storyDetail = await call("taiga_userstory_get", { ref, fields: "full" });
     expect(storyDetail.json).not.toHaveProperty("estimate");
   });
+
+  // Fix round (final review), Critical 1: taiga_task_update({ role }) used to
+  // recompute only the new role, leaving the story's old role at its stale
+  // sum — a story could show 5 points for "Front" forever after every front
+  // task moved to back. End-to-end version of the crud.test.ts orchestration
+  // tests: one task, one story, flip front → back, check both roles.
+  it("смена роли задачи front → back пересчитывает поинты обеих ролей у истории", async () => {
+    const story = await call("taiga_userstory_create", { subject: "История: смена роли задачи" });
+    const ref = track("userstory", story.json.ref);
+
+    const created = await call("taiga_task_create", {
+      subject: "Форма заявки", user_story: ref, role: "front", estimate: 5,
+    });
+    const taskRef = track("task", created.json.ref);
+    expect(created.json.story_points).toEqual({ role: "Front", from: null, to: 5 });
+
+    const flipped = await call("taiga_task_update", { ref: taskRef, role: "back" });
+    expect(flipped.isError).toBe(false);
+    // Both sides of the flip, not just the one the task landed in: Front
+    // goes back to 0 (no front tasks left), Back picks up the estimate.
+    expect(flipped.json.story_points).toEqual([
+      { user_story: ref, role: "Front", from: 5, to: 0 },
+      { user_story: ref, role: "Back", from: 0, to: 5 },
+    ]);
+
+    const detail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(detail.json.total_points).toBe(5);
+  });
 });
 
 describe("taiga_link: блокировка", () => {

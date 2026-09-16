@@ -81,13 +81,26 @@ export async function createWithRoleEstimate(
   return { row, recalcTarget };
 }
 
-/** Поинты роли = сумма оценок её задач, округлённая вверх до шкалы проекта. */
+/**
+ * Поинты роли = сумма оценок её задач, округлённая вверх до шкалы проекта.
+ *
+ * `emptyMeansZero` tells the two callers that both hit `estimated === 0`
+ * apart: a role a story has never carried an estimate for — tagging a task
+ * with a role in `taiga_task_create`/`taiga_bulk_create`, before any of its
+ * siblings has an «Оценка» yet — where no write at all is correct (nothing
+ * to show, nothing stale to fix), from a role the story just lost its last
+ * estimated task in — the task's role or `user_story` changed, or it was
+ * deleted. Only the latter passes `true`, so the story's now-stale sum for
+ * that role is overwritten with the scale's zero entry instead of being left
+ * at whatever it last was. See crud.ts's update/delete handlers.
+ */
 export async function recalcStoryPoints(
   ctx: ToolContext,
   projectId: number,
   storyId: number,
   role: RoleTag,
-): Promise<{ role: string; from: number | null; to: number } | null> {
+  emptyMeansZero = false,
+): Promise<{ role: string; from: number | null; to: number; warning?: string } | null> {
   const ids = await attributeIds(ctx, projectId, "task");
   const estimateId = ids.get("Оценка");
   if (estimateId === undefined) return null;
@@ -113,19 +126,28 @@ export async function recalcStoryPoints(
       estimated += 1;
     }
   }
-  if (estimated === 0) return null;
+  if (estimated === 0 && !emptyMeansZero) return null;
 
   const roles = await computableRoles(ctx, projectId);
   const target = roles.find((row) => row.name.toLowerCase() === role);
   if (!target) return null;
 
   const scale = await pointScale(ctx, projectId);
-  const rounded = roundUpToScale(sum, scale);
+  const max = scale.length > 0 ? scale[scale.length - 1] : undefined;
+  const rounded = estimated === 0 ? 0 : roundUpToScale(sum, scale);
+  // roundUpToScale caps a sum above the scale's max at that max instead of
+  // erroring — correct (the spec keeps the maximum), but silent capping
+  // hides that the role no longer fits the scale at all; the spec also asks
+  // for a warning here, not just the cap.
+  const warning =
+    estimated > 0 && max !== undefined && sum > max
+      ? `Сумма оценок роли «${target.name}» (${sum}) больше максимума шкалы (${max}) — поставил максимум, задачи стоит перепроверить.`
+      : undefined;
   const story = await ctx.client.get<Record<string, unknown>>(`/userstories/${storyId}`);
   const before = (story.total_points as number | null) ?? null;
   const pointsId = await ctx.cache.resolveLookup(projectId, "points", String(rounded));
   await ctx.client.patch("/userstories", storyId, {
     points: { ...((story.points as Record<string, number>) ?? {}), [target.id]: pointsId },
   });
-  return { role: target.name, from: before, to: rounded };
+  return { role: target.name, from: before, to: rounded, ...(warning ? { warning } : {}) };
 }
