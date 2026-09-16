@@ -210,6 +210,15 @@ describe("user story CRUD", () => {
     expect(gone.isError).toBe(true);
   });
 
+  it("возвращает описание в ответе создания", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "История с описанием",
+      description: "## Описание\n\nПроверяю, что описание вернулось.",
+    });
+    track(created.json.ref);
+    expect(created.json.description).toContain("описание вернулось");
+  });
+
   it("appends to the description instead of overwriting", async () => {
     const created = await call("taiga_userstory_create", {
       subject: "Append test",

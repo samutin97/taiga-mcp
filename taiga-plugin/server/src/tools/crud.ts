@@ -360,7 +360,11 @@ export function registerCrudTools(
         await applyEpicLink(ctx, projectId, created.id as number, epic, null);
       }
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, created, "slim", labels));
+      const shaped = project(def.name, created, "slim", labels);
+      if (typeof payload.description === "string") {
+        shaped.description = created.description ?? payload.description;
+      }
+      return ok(shaped);
     }),
   );
 
