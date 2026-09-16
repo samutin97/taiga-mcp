@@ -44,8 +44,8 @@ const lookupRoutes = {
   "/points?project=1&page_size=1000": [{ id: 71, name: "5" }],
   "/roles?project=1&page_size=1000": [{ id: 81, name: "Back" }],
   "/memberships?project=1&page_size=1000": [
-    { user: 91, full_name: "Ivan Petrov", email: "ivan@example.com" },
-    { user: 92, full_name: "Anna Ivanova", email: "anna@example.com" },
+    { user: 91, full_name: "Ivan Petrov", email: "ivan@example.com", username: "ivan", role_name: "Front" },
+    { user: 92, full_name: "Anna Ivanova", email: "anna@example.com", username: "anna", role_name: "Back" },
   ],
   "/projects/1": { id: 1, slug: "sandbox", name: "Sandbox" },
 };
@@ -91,14 +91,29 @@ describe("SchemaCache", () => {
     const client = fakeClient({
       ...lookupRoutes,
       "/memberships?project=1&page_size=1000": [
-        { user: 91, full_name: "Ivan Petrov", email: "ivan@a.com" },
-        { user: 93, full_name: "Ivan Petrov", email: "ivan@b.com" },
+        { user: 91, full_name: "Ivan Petrov", email: "ivan.a@example.com", username: "ivan.a" },
+        { user: 93, full_name: "Ivan Petrov", email: "ivan.b@example.com", username: "ivan.b" },
       ],
     });
     const cache = new SchemaCache(client as never, {});
     await expect(cache.resolveLookup(1, "member", "Ivan Petrov")).rejects.toThrow(
-      /ivan@a\.com/,
+      /Ivan Petrov \(ivan\.a\)/,
     );
+  });
+
+  it("находит участника по логину", async () => {
+    const cache = new SchemaCache(fakeClient(lookupRoutes) as never, {});
+    await expect(cache.resolveLookup(1, "member", "ivan")).resolves.toBe(91);
+  });
+
+  it("находит участника по почте", async () => {
+    const cache = new SchemaCache(fakeClient(lookupRoutes) as never, {});
+    await expect(cache.resolveLookup(1, "member", "anna@example.com")).resolves.toBe(92);
+  });
+
+  it("подсказывает логин и почту, когда имя не совпало", async () => {
+    const cache = new SchemaCache(fakeClient(lookupRoutes) as never, {});
+    await expect(cache.resolveLookup(1, "member", "Иван")).rejects.toThrow(/ivan/);
   });
 
   it("fetches each lookup only once", async () => {
