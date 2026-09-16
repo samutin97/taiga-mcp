@@ -223,4 +223,12 @@ describe("SchemaCache", () => {
     );
     expect(projectCalls).toHaveLength(1);
   });
+
+  it("показывает роль участника в схеме проекта", async () => {
+    const cache = new SchemaCache(fakeClient(lookupRoutes) as never, {});
+    const schema = await cache.schema(1);
+    expect(schema.lookups.member).toContainEqual(
+      expect.objectContaining({ id: 91, name: "Ivan Petrov", username: "ivan", role: "Front" }),
+    );
+  });
 });

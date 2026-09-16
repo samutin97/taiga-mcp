@@ -53,7 +53,8 @@ export function registerProjectTools(server: McpServer, ctx: ToolContext): void 
       name: "taiga_project_schema",
       description:
         "List the valid statuses, priorities, severities, issue types, points, roles " +
-        "and members of a project. Use it to show the user what values are allowed; " +
+        "and members of a project. Members include their username and role in the project. " +
+        "Use it to show the user what values are allowed; " +
         "you do not need it before writing, because status and person names are " +
         "resolved automatically.",
       input: { project: PROJECT_SCHEMA },
