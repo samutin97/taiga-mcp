@@ -204,6 +204,7 @@ describe("оценка и роль задачи", () => {
       subject: "Состояния", user_story: ref, role: "front", estimate: 4,
     });
     track("task", second.json.ref);
+    // taiga_task_create still returns object (unchanged)
     expect(second.json.story_points).toEqual({ role: "Front", from: 3, to: 8 });
 
     const detail = await call("taiga_userstory_get", { ref, fields: "full" });
@@ -226,7 +227,10 @@ describe("оценка и роль задачи", () => {
 
     const updated = await call("taiga_task_update", { ref: taskRef, estimate: 5 });
     expect(updated.isError).toBe(false);
-    expect(updated.json.story_points).toEqual({ role: "Back", from: null, to: 5 });
+    // taiga_task_update now always returns an array, even for a single pair
+    expect(updated.json.story_points).toEqual([
+      { user_story: ref, role: "Back", from: null, to: 5 },
+    ]);
 
     const detail = await call("taiga_userstory_get", { ref, fields: "full" });
     expect(detail.json.total_points).toBe(5);
@@ -278,6 +282,7 @@ describe("оценка и роль задачи", () => {
     expect(flipped.isError).toBe(false);
     // Both sides of the flip, not just the one the task landed in: Front
     // goes back to 0 (no front tasks left), Back picks up the estimate.
+    // taiga_task_update returns an array for all cases (two pairs affected here)
     expect(flipped.json.story_points).toEqual([
       { user_story: ref, role: "Front", from: 5, to: 0 },
       { user_story: ref, role: "Back", from: 0, to: 5 },

@@ -655,14 +655,10 @@ export function registerCrudTools(
           const result = await recalcStoryPoints(ctx, projectId, pair.storyId, pair.role, pair.leaving);
           if (result) recalced.push({ user_story: pair.ref, ...result });
         }
-        // A single affected pair keeps the plain `{role, from, to}` shape
-        // every existing caller expects; only when the task actually moved
-        // between two distinct pairs does the array (with `user_story` to
-        // tell them apart) show up at all.
-        if (recalced.length === 1) {
-          const { user_story: _unused, ...rest } = recalced[0];
-          storyPoints = rest;
-        } else if (recalced.length > 1) {
+        // Always return an array to match taiga_bulk_create and provide
+        // consistent shape across the API. Empty array when nothing was
+        // recomputed (none of the touched fields apply to this resource).
+        if (recalced.length > 0) {
           storyPoints = recalced;
         }
       }

@@ -23391,10 +23391,7 @@ ${appendText}` : appendText;
           const result = await recalcStoryPoints(ctx, projectId, pair.storyId, pair.role, pair.leaving);
           if (result) recalced.push({ user_story: pair.ref, ...result });
         }
-        if (recalced.length === 1) {
-          const { user_story: _unused, ...rest } = recalced[0];
-          storyPoints = rest;
-        } else if (recalced.length > 1) {
+        if (recalced.length > 0) {
           storyPoints = recalced;
         }
       }
