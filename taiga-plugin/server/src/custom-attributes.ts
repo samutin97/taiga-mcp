@@ -1,0 +1,76 @@
+import type { ToolContext } from "./context.js";
+
+export type AttrResource = "task" | "userstory";
+
+const DEFINITION_PATH: Record<AttrResource, string> = {
+  task: "/task-custom-attributes",
+  userstory: "/userstory-custom-attributes",
+};
+
+const VALUES_PATH: Record<AttrResource, string> = {
+  task: "/tasks/custom-attributes-values",
+  userstory: "/userstories/custom-attributes-values",
+};
+
+// Keyed `${projectId}:${resource}`, same shape as SchemaCache's lookup cache.
+const cache = new Map<string, { at: number; ids: Map<string, number> }>();
+const TTL_MS = 60_000;
+
+/** Test-only: a stale entry must not leak from one test into the next. */
+export function resetAttributeCache(): void {
+  cache.clear();
+}
+
+export async function attributeIds(
+  ctx: ToolContext,
+  projectId: number,
+  resource: AttrResource,
+): Promise<Map<string, number>> {
+  const key = `${projectId}:${resource}`;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.ids;
+  const { items } = await ctx.client.list<Record<string, unknown>>(DEFINITION_PATH[resource], {
+    project: projectId,
+    page_size: 1000,
+  });
+  const ids = new Map(items.map((row) => [String(row.name), row.id as number]));
+  cache.set(key, { at: Date.now(), ids });
+  return ids;
+}
+
+/** Значения приходят отдельным объектом со своей версией — в списках их нет. */
+export async function readAttributes(
+  ctx: ToolContext,
+  resource: AttrResource,
+  itemId: number,
+): Promise<Record<string, unknown>> {
+  const row = await ctx.client.get<{ attributes_values?: Record<string, unknown> }>(
+    `${VALUES_PATH[resource]}/${itemId}`,
+  );
+  return row.attributes_values ?? {};
+}
+
+export async function writeAttributes(
+  ctx: ToolContext,
+  resource: AttrResource,
+  itemId: number,
+  values: Record<number, unknown>,
+): Promise<void> {
+  const current = await readAttributes(ctx, resource, itemId);
+  const merged: Record<string, unknown> = { ...current };
+  for (const [id, value] of Object.entries(values)) {
+    if (value === null) delete merged[id];
+    else merged[id] = value;
+  }
+  await ctx.client.patch(VALUES_PATH[resource], itemId, { attributes_values: merged });
+}
+
+export function requireAttribute(ids: Map<string, number>, name: string): number {
+  const id = ids.get(name);
+  if (id === undefined) {
+    throw new Error(
+      `В проекте нет поля «${name}». Заведите его в настройках Taiga: Admin → Attributes → Custom fields.`,
+    );
+  }
+  return id;
+}
