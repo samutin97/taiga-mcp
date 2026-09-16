@@ -32,7 +32,7 @@ describe("tool annotations", () => {
     }
   });
 
-  it("hard-gates exactly the eight irreversible or bulk tools", async () => {
+  it("hard-gates exactly the six delete tools", async () => {
     const client = await startClient();
     const { tools } = await client.listTools();
     const gated = tools
