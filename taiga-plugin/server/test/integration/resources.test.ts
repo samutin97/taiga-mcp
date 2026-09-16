@@ -261,6 +261,22 @@ describe("taiga_link: блокировка", () => {
     expect(JSON.stringify(comments2.json)).toContain("Разблокировал");
   });
 
+  it("карточка показывает, что её блокирует", async () => {
+    const blocker = await call("taiga_userstory_create", { subject: "Сначала API" });
+    const from = track("userstory", blocker.json.ref);
+    const blocked = await call("taiga_userstory_create", { subject: "Потом экран" });
+    const to = track("userstory", blocked.json.ref);
+    await call("taiga_link", { from, to, type: "blocks" });
+
+    const target = await call("taiga_userstory_get", { ref: to, fields: "full" });
+    expect(target.json.blocked_by).toContain(from);
+
+    // No «Блокирует» field in this project yet: `blocks` is an honest empty
+    // list, not a guess derived from something else.
+    const source = await call("taiga_userstory_get", { ref: from, fields: "full" });
+    expect(source.json.blocks).toEqual([]);
+  });
+
   it("резолвит любую комбинацию истории и задачи", async () => {
     const story = await call("taiga_userstory_create", { subject: "История-блокер" });
     const from = track("userstory", story.json.ref);
@@ -330,12 +346,45 @@ describe("taiga_link с полями «Блокируется»/«Блокиру
       `/userstories/custom-attributes-values/${toDetail.json.id}`,
     );
     expect(toValues.attributes_values[String(blockedAttrId)]).toBe(`#${from}`);
+    expect(toDetail.json.blocked_by).toEqual([from]);
 
     const fromDetail = await call("taiga_userstory_get", { ref: from, fields: "full" });
     const fromValues = await client.get<{ attributes_values: Record<string, unknown> }>(
       `/userstories/custom-attributes-values/${fromDetail.json.id}`,
     );
     expect(fromValues.attributes_values[String(blockerAttrId)]).toBe(`#${to}`);
+    expect(fromDetail.json.blocks).toEqual([to]);
+  });
+
+  // The note is the source of truth even when «Блокируется» exists (task
+  // 10's rule, binding here too): a ref that only ever landed in the field —
+  // say, someone hand-edited it in Taiga's UI — must not resurrect a link
+  // the note never recorded.
+  it("примечание решает: посторонняя ссылка в поле не попадает в blocked_by", async () => {
+    const blocker = await call("taiga_userstory_create", { subject: "Блокер (нота решает)" });
+    const from = track("userstory", blocker.json.ref);
+    const blocked = await call("taiga_userstory_create", { subject: "Заблокированный (нота решает)" });
+    const to = track("userstory", blocked.json.ref);
+    const stray = await call("taiga_userstory_create", { subject: "Посторонняя история" });
+    const strayRef = track("userstory", stray.json.ref);
+
+    const linked = await call("taiga_link", { from, to, type: "blocks" });
+    expect(linked.isError).toBe(false);
+
+    const client = adminClient();
+    const toDetail = await call("taiga_userstory_get", { ref: to, fields: "full" });
+    const current = await client.get<{ attributes_values: Record<string, unknown> }>(
+      `/userstories/custom-attributes-values/${toDetail.json.id}`,
+    );
+    await client.patch("/userstories/custom-attributes-values", toDetail.json.id, {
+      attributes_values: {
+        ...current.attributes_values,
+        [String(blockedAttrId)]: `#${from}, #${strayRef}`,
+      },
+    });
+
+    const after = await call("taiga_userstory_get", { ref: to, fields: "full" });
+    expect(after.json.blocked_by).toEqual([from]);
   });
 
   it("пишет ссылки в «Связано с» обеим сторонам", async () => {

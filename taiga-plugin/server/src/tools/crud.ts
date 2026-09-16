@@ -6,13 +6,55 @@ import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
-import { attributeIds, requireAttribute, writeAttributes } from "../custom-attributes.js";
+import {
+  type AttrResource,
+  attributeIds,
+  readAttributes,
+  requireAttribute,
+  writeAttributes,
+} from "../custom-attributes.js";
 import {
   withRoleTag,
   recalcStoryPoints,
   effectiveRole,
   createWithRoleEstimate,
 } from "../role-points.js";
+import { refsFromLinks } from "./link.js";
+
+/** Only stories and tasks carry blocking relations — the two `AttrResource` kinds. */
+function isLinkable(name: ResourceDef["name"]): name is AttrResource {
+  return name === "userstory" || name === "task";
+}
+
+/**
+ * `blocked_by`/`blocks` for a `fields: "full"` card.
+ *
+ * The note (`blocked_note`) is the sole source of truth for `blocked_by` —
+ * task 10's truth rule holds here too, so a ref that landed only in the
+ * «Блокируется» field (say, someone hand-edited it in Taiga's UI) never
+ * resurrects a link the note doesn't name; the field is a shop window, not
+ * read for this direction at all.
+ *
+ * `blocks` has no note counterpart — it exists only in «Блокирует» — so a
+ * project without that field honestly reports no blocks instead of guessing,
+ * and the extra request to read it is skipped entirely.
+ */
+async function readLinks(
+  ctx: ToolContext,
+  projectId: number,
+  resource: AttrResource,
+  itemId: number,
+  raw: Record<string, unknown>,
+): Promise<{ blocked_by: number[]; blocks: number[] }> {
+  const note = typeof raw.blocked_note === "string" ? raw.blocked_note : null;
+  const ids = await attributeIds(ctx, projectId, resource);
+  const blocksAttrId = ids.get("Блокирует");
+  const blocks =
+    blocksAttrId === undefined
+      ? []
+      : refsFromLinks(null, (await readAttributes(ctx, resource, itemId))[String(blocksAttrId)]);
+  return { blocked_by: refsFromLinks(note, null), blocks };
+}
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -295,7 +337,14 @@ export function registerCrudTools(
       const id = await locate(ctx, def, projectId, a);
       const raw = await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, raw, asFieldMode(a.fields), labels));
+      const fieldMode = asFieldMode(a.fields);
+      const shaped = project(def.name, raw, fieldMode, labels);
+      // Only `fields: "full"` pays for this — reading attributes costs a
+      // request per item, and slim list answers must not pay it.
+      if (fieldMode === "full" && isLinkable(def.name)) {
+        Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
+      }
+      return ok(shaped);
     }),
   );
 
