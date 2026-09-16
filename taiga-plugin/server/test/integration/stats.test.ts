@@ -95,13 +95,17 @@ describe("stats", () => {
 // The second assignee, "Tester Two" (tester2@example.com), is a second real
 // login on the local stand itself (the stand only ships with "Local Admin";
 // Taiga has no admin API to create a user, and public self-registration is
-// disabled here — this account was created once directly via
-// `docker compose run --rm taiga-manage shell` against `infra/taiga-docker`,
-// the same way `infra/seed_test_data.py` seeds "Local Admin"). It is a
-// permanent fixture of this specific local stand, not something this test
-// creates or deletes — only the project and its membership are per-run.
+// disabled here). `infra/seed_test_data.py` now creates this login itself
+// (see `ensure_second_stand_user` there) the same way `infra/README.md`
+// step 5 creates "Local Admin", so a freshly reseeded stand has it too — but
+// a stand that was only ever set up by the older README steps (or never
+// reseeded since) may not. This suite does not assume it: it checks whether
+// the membership it adds actually resolved to a real user, and skips the one
+// numeric test — rather than failing, or silently asserting less than it
+// claims — when it didn't.
 describe("taiga_stats: реальные числа на своём временном проекте", () => {
   let projectId: number | undefined;
+  let hasSecondMember = false;
   const sprintName = `Load test ${Date.now()}`;
 
   beforeAll(async () => {
@@ -118,12 +122,17 @@ describe("taiga_stats: реальные числа на своём времен�
     if (!frontRole) throw new Error("no Front role on a freshly created project");
     // Adding an existing account by username requires it already be a
     // "contact" (a prior shared project) — passing its email as `username`
-    // resolves straight to the existing user instead, no invite needed.
-    await admin.post("/memberships", {
+    // resolves straight to the existing user instead, no invite needed. If
+    // no such account exists, Taiga does not error: it creates a *pending*
+    // membership with `user: null` instead (an invite nobody can accept
+    // headlessly) — that is exactly the "stand not reseeded" case this test
+    // has to detect rather than plough on with one assignee.
+    const membership = await admin.post<{ user: number | null }>("/memberships", {
       project: projectId,
       role: frontRole.id,
       username: "tester2@example.com",
     });
+    hasSecondMember = typeof membership.user === "number";
 
     await admin.post("/task-custom-attributes", {
       name: "Оценка",
@@ -153,11 +162,15 @@ describe("taiga_stats: реальные числа на своём времен�
       project: projectId, subject: "Админ: бэк", user_story: storyRef,
       assigned_to: "Local Admin", role: "back", estimate: 4,
     });
-    // Tester Two: one task, no estimate.
-    await call("taiga_task_create", {
-      project: projectId, subject: "Тестер: без оценки", user_story: storyRef,
-      assigned_to: "Tester Two", role: "ux",
-    });
+    // Tester Two: one task, no estimate. Only if the account actually
+    // exists — assigned_to a pending invite's name would just fail to
+    // resolve and throw, since it never made it into the member list.
+    if (hasSecondMember) {
+      await call("taiga_task_create", {
+        project: projectId, subject: "Тестер: без оценки", user_story: storyRef,
+        assigned_to: "Tester Two", role: "ux",
+      });
+    }
     // Unassigned task.
     await call("taiga_task_create", {
       project: projectId, subject: "Без исполнителя", user_story: storyRef,
@@ -171,7 +184,16 @@ describe("taiga_stats: реальные числа на своём времен�
     }
   });
 
-  it("считает реальные суммы по людям: две роли у одного, оценка не у всех, задача без исполнителя", async () => {
+  it("считает реальные суммы по людям: две роли у одного, оценка не у всех, задача без исполнителя", async (ctx) => {
+    if (!hasSecondMember) {
+      console.warn(
+        "SKIP: в проекте один участник — некого распределять; засейте стенд заново " +
+          "(запустите python infra/seed_test_data.py — см. infra/README.md).",
+      );
+      ctx.skip();
+      return;
+    }
+
     const { json, isError } = await call("taiga_stats", { project: projectId, sprint: sprintName });
     expect(isError).toBe(false);
     expect(json.load_note).toBeUndefined();

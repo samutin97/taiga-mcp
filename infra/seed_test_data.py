@@ -9,9 +9,22 @@ Usage:
 """
 
 import argparse
+import subprocess
 import sys
+from pathlib import Path
 
 import requests
+
+# A second real login on the stand, alongside "admin"/"Local Admin" — needed
+# to exercise per-person load distribution (taiga_stats' `load`, taiga_link
+# assignment, etc.) against more than one assignee. Same login/email/name a
+# live test in taiga-plugin/server/test/integration/stats.test.ts expects.
+SECOND_USER = {
+    "username": "tester2",
+    "email": "tester2@example.com",
+    "full_name": "Tester Two",
+    "password": "TaigaLocal2026!",
+}
 
 
 class Taiga:
@@ -42,7 +55,47 @@ class Taiga:
         return r.json()
 
 
-def seed(t: Taiga, name: str, slug_hint: str):
+def ensure_second_stand_user(username, email, full_name, password):
+    """Create (or refresh) a second Taiga login through Django — the same
+    `docker compose exec -T taiga-back python manage.py shell` pattern
+    infra/README.md step 5 uses to create the "admin" account. There is no
+    REST way to do this: `POST /users` is unsupported and public
+    self-registration is disabled on this stand.
+    """
+    compose_dir = Path(__file__).resolve().parent / "taiga-docker"
+    script = (
+        "from django.contrib.auth import get_user_model\n"
+        "U = get_user_model()\n"
+        f"u, _ = U.objects.get_or_create(username={username!r}, "
+        f"defaults={{'email': {email!r}, 'full_name': {full_name!r}}})\n"
+        f"u.set_password({password!r})\n"
+        "u.is_active = True\n"
+        "u.save()\n"
+        "print('user id', u.id)\n"
+    )
+    print(f"- second stand user ({username})")
+    result = subprocess.run(
+        ["docker", "compose", "exec", "-T", "taiga-back", "python", "manage.py", "shell", "-c", script],
+        cwd=compose_dir,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"  ! could not create/update {username} via `docker compose exec` "
+            f"(cwd={compose_dir}): {result.stderr[:300]}",
+            file=sys.stderr,
+        )
+        raise SystemExit(
+            "Second stand user step failed — is the stand up? "
+            "(`docker compose ps` in infra/taiga-docker). "
+            "See infra/README.md step 5 for the manual equivalent."
+        )
+    last_line = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "ok"
+    print(f"  {last_line}")
+
+
+def seed(t: Taiga, name: str, slug_hint: str, second_member_email: str | None = None):
     print("- project")
     project = t.post(
         "/projects",
@@ -67,7 +120,25 @@ def seed(t: Taiga, name: str, slug_hint: str):
     severities = {s["name"]: s["id"] for s in t.get(f"/severities?project={pid}")}
     types = {x["name"]: x["id"] for x in t.get(f"/issue-types?project={pid}")}
     points = {p["name"]: p["id"] for p in t.get(f"/points?project={pid}")}
-    role_id = t.get(f"/roles?project={pid}")[0]["id"]
+    roles = t.get(f"/roles?project={pid}")
+    role_id = roles[0]["id"]
+    roles_by_name = {r["name"]: r["id"] for r in roles}
+
+    if second_member_email:
+        print("- second member")
+        # Passing the email in `username` resolves straight to the existing
+        # account (matched by email) instead of sending a pending invite —
+        # adding an existing user by plain username here instead requires
+        # them to already be a "contact" (a prior shared project), which a
+        # freshly seeded project never has.
+        t.post(
+            "/memberships",
+            {
+                "project": pid,
+                "role": roles_by_name.get("Front", role_id),
+                "username": second_member_email,
+            },
+        )
 
     print("- milestones")
     sprints = [
@@ -207,8 +278,9 @@ def main():
     args = ap.parse_args()
 
     print(f"Seeding {args.url}")
+    ensure_second_stand_user(**SECOND_USER)
     t = Taiga(args.url, args.username, args.password)
-    project = seed(t, args.name, "mcp-sandbox")
+    project = seed(t, args.name, "mcp-sandbox", second_member_email=SECOND_USER["email"])
     print(f"\nDone: {args.url}/project/{project['slug']}/")
 
 
