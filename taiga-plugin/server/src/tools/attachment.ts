@@ -106,7 +106,6 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolContext): vo
       description: "Attach a local file to a user story, task, issue or epic.",
       input: { ...common, file_path: z.string().describe("Absolute path to the file to upload.") },
       kind: "create",
-      confirm: true,
     },
     guard(async (args) => {
       const a = args as Record<string, unknown>;

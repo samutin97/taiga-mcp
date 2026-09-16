@@ -54,7 +54,6 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
           ),
       },
       kind: "create",
-      confirm: true,
     },
     guard(async (args) => {
       const a = args as {

@@ -8,11 +8,7 @@ const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint
 
 const RESOURCES = ["userstory", "task", "issue", "epic", "sprint", "wiki"];
 
-export const CONFIRMED = [
-  ...RESOURCES.map((r) => `taiga_${r}_delete`),
-  "taiga_bulk_create",
-  "taiga_attachment_upload",
-];
+export const CONFIRMED = [...RESOURCES.map((r) => `taiga_${r}_delete`)];
 
 function expectedFor(name: string) {
   if (name.endsWith("_delete")) return DESTRUCTIVE;
