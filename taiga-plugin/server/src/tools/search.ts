@@ -14,7 +14,7 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
         "Full-text search across a project's user stories, tasks, issues, epics and " +
         "wiki pages. Use it when you know roughly what an item is called but not its #ref. " +
         "For a full listing use taiga_<resource>_list. " +
-        "Поиск отдаёт только те поля, что вернула Taiga; за деталями — taiga_*_get.",
+        "Returns only the fields Taiga actually sent back; use taiga_*_get for the rest.",
       input: {
         project: PROJECT_SCHEMA,
         text: z.string().min(1).describe("Search query."),

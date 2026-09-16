@@ -23416,7 +23416,7 @@ function registerSearchTool(server, ctx) {
     ctx,
     {
       name: "taiga_search",
-      description: "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list. \u041F\u043E\u0438\u0441\u043A \u043E\u0442\u0434\u0430\u0451\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435 \u043F\u043E\u043B\u044F, \u0447\u0442\u043E \u0432\u0435\u0440\u043D\u0443\u043B\u0430 Taiga; \u0437\u0430 \u0434\u0435\u0442\u0430\u043B\u044F\u043C\u0438 \u2014 taiga_*_get.",
+      description: "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list. Returns only the fields Taiga actually sent back; use taiga_*_get for the rest.",
       input: {
         project: PROJECT_SCHEMA,
         text: external_exports.string().min(1).describe("Search query.")
