@@ -265,6 +265,32 @@ describe("bulk create", () => {
       expect(second.json.points).toBe(8);
     });
 
+    // Regression: taiga_bulk_create built its own, narrower label maps than
+    // taiga_userstory_create/_get — missing the `role`/`points` maps a
+    // userstory's projection needs for `points_by_role` — so a bulk-created
+    // story with per-role points always reported `points_by_role: {}` even
+    // though the points landed in Taiga (visible only via a separate
+    // taiga_userstory_get). Verified live: bulk-creating with
+    // `points: {"Front":"5","Back":"3"}` used to return
+    // `{"points": 8, "points_by_role": {}}`.
+    it("fills in points_by_role on the create response, matching taiga_userstory_get", async () => {
+      const { json } = await call("taiga_bulk_create", {
+        resource: "userstory",
+        items: [
+          { subject: "Bulk points_by_role", points: { Front: "5", Back: "3" } },
+        ],
+      });
+      for (const item of json.created) track(item.ref as number);
+
+      expect(json.failed).toHaveLength(0);
+      expect(json.created).toHaveLength(1);
+      expect(json.created[0].points).toBe(8);
+      expect(json.created[0].points_by_role).toEqual({ Front: 5, Back: 3 });
+
+      const fetched = await call("taiga_userstory_get", { ref: json.created[0].ref });
+      expect(fetched.json.points_by_role).toEqual(json.created[0].points_by_role);
+    });
+
     it("isolates a bad sprint name to its own item", async () => {
       const sprints = await call("taiga_sprint_list");
       const sprintName = sprints.json.items[0].name;

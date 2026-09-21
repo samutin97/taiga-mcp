@@ -103,8 +103,14 @@ const USER_STORY_EXTRA_LABELS: { map: keyof LabelMaps; kind: LookupKind }[] = [
   { map: "role", kind: "role" },
 ];
 
-/** Build the id→name maps this resource's projection needs. Empty for most resources. */
-async function buildLabels(
+/**
+ * Build the id→name maps this resource's projection needs. Empty for most
+ * resources. Exported so `taiga_bulk_create` can reuse it instead of
+ * duplicating which lookup maps each resource kind's projection needs —
+ * a bulk-created user story needs the same `role`/`points` maps as a
+ * single-create one to fill in `points_by_role`.
+ */
+export async function buildLabels(
   ctx: ToolContext,
   def: ResourceDef,
   projectId: number,
@@ -113,12 +119,18 @@ async function buildLabels(
     def.name === "userstory"
       ? [...(def.labels ?? []), ...USER_STORY_EXTRA_LABELS]
       : (def.labels ?? []);
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
-  );
+  // `valueMap` runs alongside the label lookups, not after them — both hit
+  // the same per-project cache, so on a cold cache serialising them would
+  // cost an extra round trip for nothing.
+  const [resolved, points] = await Promise.all([
+    Promise.all(
+      wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
+    ),
+    def.name === "userstory" ? ctx.cache.valueMap(projectId) : Promise.resolve(undefined),
+  ]);
   const labels = Object.fromEntries(resolved) as LabelMaps;
-  if (def.name === "userstory") {
-    labels.points = await ctx.cache.valueMap(projectId);
+  if (points !== undefined) {
+    labels.points = points;
   }
   return labels;
 }
