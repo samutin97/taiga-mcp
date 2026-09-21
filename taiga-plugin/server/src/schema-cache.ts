@@ -36,6 +36,8 @@ export interface LookupEntry {
   username?: string;
   /** Member's role in the project. Only set for kind "member". */
   role?: string;
+  /** Numeric point value, or null for an "unestimated" point like Taiga's own `?`. Only set for kind "points". */
+  value?: number | null;
 }
 
 export interface CustomFieldEntry {
@@ -165,7 +167,13 @@ export class SchemaCache {
               username: row.username ? String(row.username) : undefined,
               role: row.role_name ? String(row.role_name) : undefined,
             }))
-        : raw.map((row) => ({ id: row.id as number, name: String(row.name) }));
+        : kind === "points"
+          ? raw.map((row) => ({
+              id: row.id as number,
+              name: String(row.name),
+              value: (row.value as number | null | undefined) ?? null,
+            }))
+          : raw.map((row) => ({ id: row.id as number, name: String(row.name) }));
 
     this.lookups.set(key, { at: Date.now(), entries });
     return entries;
@@ -222,6 +230,17 @@ export class SchemaCache {
   async labelMap(projectId: number, kind: LookupKind): Promise<Map<number, string>> {
     const entries = await this.entries(projectId, kind);
     return new Map(entries.map((entry) => [entry.id, entry.name]));
+  }
+
+  /**
+   * Point id -> its numeric value (or null for an "unestimated" point like
+   * Taiga's own `?`), for building `points_by_role`. Built from the same
+   * cached `/points` entries `entries()` already fetches for `labelMap` and
+   * `resolveLookup` — no extra request when they're warm.
+   */
+  async valueMap(projectId: number): Promise<Map<number, number | null>> {
+    const entries = await this.entries(projectId, "points");
+    return new Map(entries.map((entry) => [entry.id, entry.value ?? null]));
   }
 
   async schema(projectId: number): Promise<ProjectSchema> {

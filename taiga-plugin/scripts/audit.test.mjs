@@ -28,11 +28,16 @@ test("stale", () => {
   assert.deepEqual(rules({ ...base, stories: [story({ modified_date: "2026-08-20", total_comments: 2 })] }), []);
   assert.deepEqual(rules({ ...base, stories: [story({ status: "New", modified_date: "2026-08-20", total_comments: 0 })] }), []);
 });
-test("oversized accepts number, string and per-role object", () => {
-  assert.deepEqual(rules({ ...base, stories: [story({ points: 20 })] }), ["oversized"]);
-  assert.deepEqual(rules({ ...base, stories: [story({ points: "21" })] }), ["oversized"]);
-  assert.deepEqual(rules({ ...base, stories: [story({ points: { 1: 8, 2: 8 } })] }), ["oversized"]);
-  assert.deepEqual(rules({ ...base, stories: [story({ points: 13 })] }), []);
+test("oversized weighs each role on its own, never their sum", () => {
+  assert.deepEqual(rules({ ...base, stories: [story({ points_by_role: { Front: 40 } })] }), ["oversized"]);
+  assert.deepEqual(rules({ ...base, stories: [story({ points_by_role: { Front: 8, Back: "21" } })] }), ["oversized"]);
+  // Two comfortable halves worked in parallel — 16 in total, nothing to cut.
+  assert.deepEqual(rules({ ...base, stories: [story({ points_by_role: { Front: 8, Back: 8 } })] }), []);
+  assert.deepEqual(rules({ ...base, stories: [story({ points_by_role: { Front: 20 } })] }), []);
+  // No breakdown, or nothing numeric in it: the rule stays silent rather than
+  // guessing from the total, which sums roles that never compete for one person.
+  assert.deepEqual(rules({ ...base, stories: [story({ points: 99 })] }), []);
+  assert.deepEqual(rules({ ...base, stories: [story({ points_by_role: {} })] }), []);
 });
 test("sprint-overloaded", () => {
   assert.deepEqual(rules({ ...base, sprints: [{ name: "S1", closed: false, total_points: 30 }] }), ["sprint-overloaded"]);

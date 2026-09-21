@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-const DEFAULT_OPTIONS = { stale_days: 7, max_points: 13, window_days: 30, overload_ratio: 1.2 };
+const DEFAULT_OPTIONS = { stale_days: 7, max_points: 20, window_days: 30, overload_ratio: 1.2 };
 
 // `\b` in JS regex only recognizes ASCII word characters, so it never finds a
 // boundary after a Cyrillic word (every character on both sides counts as
@@ -33,23 +33,18 @@ function isInitialStatus(status) {
   return typeof status === "string" && INITIAL_STATUS_RE.test(status.trim());
 }
 
-// Number from a number, a numeric string, or the sum of an object's numeric
-// values. NaN (unparseable input) means the rule stays silent for that item.
-export function pointsOf(v) {
-  if (v == null) return NaN;
-  if (typeof v === "number" || typeof v === "string") return Number(v);
-  if (typeof v === "object") {
-    const values = Object.values(v);
-    if (values.length === 0) return NaN;
-    let sum = 0;
-    for (const val of values) {
-      const n = Number(val);
-      if (Number.isNaN(n)) return NaN;
-      sum += n;
-    }
-    return sum;
+// The heaviest single role of a story, as { role, points } — or null when the
+// breakdown is missing or holds nothing numeric, in which case the rule stays
+// silent for that story.
+export function heaviestRole(byRole) {
+  if (!byRole || typeof byRole !== "object") return null;
+  let worst = null;
+  for (const [role, value] of Object.entries(byRole)) {
+    const points = Number(value);
+    if (Number.isNaN(points)) continue;
+    if (worst === null || points > worst.points) worst = { role, points };
   }
-  return NaN;
+  return worst;
 }
 
 function checkActionTitle(story) {
@@ -71,10 +66,14 @@ function checkStale(story, now, staleDays) {
   return `в работе ${age} дней без движения и комментариев`;
 }
 
+// Per role, never the sum: roles work in parallel and with different hands,
+// so Front 8 + Back 8 is two comfortable halves, not one oversized story.
 function checkOversized(story, maxPoints) {
-  const n = pointsOf(story.points);
-  if (Number.isNaN(n)) return null;
-  return n > maxPoints ? `оценка ${n} > ${maxPoints} — резать` : null;
+  const worst = heaviestRole(story.points_by_role);
+  if (worst === null) return null;
+  return worst.points > maxPoints
+    ? `роль «${worst.role}» — ${worst.points} > ${maxPoints}: резать историю`
+    : null;
 }
 
 function checkWaitingTag(story) {

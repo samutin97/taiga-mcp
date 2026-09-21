@@ -72,7 +72,9 @@ describe("stats", () => {
   it("без поля «Оценка» возвращает пустую загрузку с пояснением", async () => {
     const { json } = await call("taiga_stats", { sprint: "Sprint 1" });
     expect(json.load).toEqual([]);
-    expect(json.load_note).toBe("Оценок задач в проекте нет: заведите поле «Оценка» у задач.");
+    expect(json.load_note).toBe(
+      "Загрузка по задачам недоступна: у задач нет поля «Оценка». Считайте по поинтам историй — taiga_userstory_list со sprint отдаёт points и points_by_role.",
+    );
   });
 
   it("project-wide stats never carry load", async () => {

@@ -2,9 +2,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
-import { project, type LabelMaps } from "../projections.js";
+import { project } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
-import { resolveEpic, linkStoryToEpic, resolveSprint } from "./crud.js";
+import { resolveEpic, linkStoryToEpic, resolveSprint, buildLabels } from "./crud.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
 import { createWithRoleEstimate, recalcStoryPoints, ROLE_TAGS, type RoleTag } from "../role-points.js";
@@ -24,23 +24,6 @@ const SINGLE_RESOURCE_FIELDS: Record<string, string> = {
   role: "tasks",
   estimate: "tasks",
 };
-
-/**
- * Build the id→name maps this resource's projection needs, same as the CRUD
- * create handler does — a bulk-created issue must show priority/severity/type
- * as names too, not the bare ids Taiga's create response echoes back.
- */
-async function buildLabels(
-  ctx: ToolContext,
-  def: ResourceDef,
-  projectId: number,
-): Promise<LabelMaps> {
-  const wanted = def.labels ?? [];
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
-  );
-  return Object.fromEntries(resolved) as LabelMaps;
-}
 
 export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
   defineTool(

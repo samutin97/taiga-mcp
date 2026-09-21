@@ -49,8 +49,10 @@ function fakeCtx(routes: Record<string, unknown>) {
     resolveProject: vi.fn(async () => 1),
     // Only userstory's SLIM shape declares a label map (`member`); task
     // needs none. Present unconditionally so either resource's `_get` test
-    // can share this fakeCtx.
+    // can share this fakeCtx. `valueMap` backs userstory's `points_by_role`
+    // the same way — buildLabels calls it unconditionally for userstory.
     labelMap: vi.fn(async () => new Map()),
+    valueMap: vi.fn(async () => new Map()),
   };
   return { client, cache, options: { readOnly: false, voiceGuard: "off" as const } };
 }

@@ -1,9 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, FIELDS_SCHEMA, PROJECT_SCHEMA, asFieldMode } from "../context.js";
-import { project, projectMany, type LabelMaps } from "../projections.js";
+import { project, projectMany, pointsByRole, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
+import type { LookupKind } from "../schema-cache.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
 import {
@@ -90,17 +91,48 @@ async function readLinks(
   return result;
 }
 
-/** Build the id→name maps this resource's projection needs. Empty for most resources. */
-async function buildLabels(
+/**
+ * A userstory's projection also needs the `role` id->name map to build
+ * `points_by_role` (see projections.ts) — not declared on `USER_STORY.labels`
+ * since that list is typed for the priority/severity/type/member fields
+ * every other resource uses, so it's added here instead, for this resource only.
+ * The matching `points` id->value map comes from `valueMap`, not `labelMap`
+ * (points, unlike every other lookup, resolves to a number, not a name).
+ */
+const USER_STORY_EXTRA_LABELS: { map: keyof LabelMaps; kind: LookupKind }[] = [
+  { map: "role", kind: "role" },
+];
+
+/**
+ * Build the id→name maps this resource's projection needs. Empty for most
+ * resources. Exported so `taiga_bulk_create` can reuse it instead of
+ * duplicating which lookup maps each resource kind's projection needs —
+ * a bulk-created user story needs the same `role`/`points` maps as a
+ * single-create one to fill in `points_by_role`.
+ */
+export async function buildLabels(
   ctx: ToolContext,
   def: ResourceDef,
   projectId: number,
 ): Promise<LabelMaps> {
-  const wanted = def.labels ?? [];
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
-  );
-  return Object.fromEntries(resolved) as LabelMaps;
+  const wanted: { map: keyof LabelMaps; kind: LookupKind }[] =
+    def.name === "userstory"
+      ? [...(def.labels ?? []), ...USER_STORY_EXTRA_LABELS]
+      : (def.labels ?? []);
+  // `valueMap` runs alongside the label lookups, not after them — both hit
+  // the same per-project cache, so on a cold cache serialising them would
+  // cost an extra round trip for nothing.
+  const [resolved, points] = await Promise.all([
+    Promise.all(
+      wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
+    ),
+    def.name === "userstory" ? ctx.cache.valueMap(projectId) : Promise.resolve(undefined),
+  ]);
+  const labels = Object.fromEntries(resolved) as LabelMaps;
+  if (points !== undefined) {
+    labels.points = points;
+  }
+  return labels;
 }
 
 /** Resolve the caller's `id` or `ref` into an internal object id. */
@@ -377,6 +409,13 @@ export function registerCrudTools(
       // request per item, and slim list answers must not pay it.
       if (fieldMode === "full" && isLinkable(def.name)) {
         Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
+      }
+      // `fields: "full"` returns Taiga's raw `points` (`{"<role id>":
+      // <point id>}`), unreadable to a model without the same role/points
+      // maps `slim` uses — so a full userstory card gets the same
+      // `points_by_role` breakdown attached, without dropping the raw field.
+      if (fieldMode === "full" && def.name === "userstory") {
+        shaped.points_by_role = pointsByRole(raw, labels);
       }
       return ok(shaped);
     }),

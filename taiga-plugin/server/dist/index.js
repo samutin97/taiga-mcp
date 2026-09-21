@@ -21893,6 +21893,10 @@ var SchemaCache = class {
       qualifier: row.email ? String(row.email) : void 0,
       username: row.username ? String(row.username) : void 0,
       role: row.role_name ? String(row.role_name) : void 0
+    })) : kind === "points" ? raw.map((row) => ({
+      id: row.id,
+      name: String(row.name),
+      value: row.value ?? null
     })) : raw.map((row) => ({ id: row.id, name: String(row.name) }));
     this.lookups.set(key, { at: Date.now(), entries });
     return entries;
@@ -21926,6 +21930,16 @@ var SchemaCache = class {
   async labelMap(projectId, kind) {
     const entries = await this.entries(projectId, kind);
     return new Map(entries.map((entry) => [entry.id, entry.name]));
+  }
+  /**
+   * Point id -> its numeric value (or null for an "unestimated" point like
+   * Taiga's own `?`), for building `points_by_role`. Built from the same
+   * cached `/points` entries `entries()` already fetches for `labelMap` and
+   * `resolveLookup` — no extra request when they're warm.
+   */
+  async valueMap(projectId) {
+    const entries = await this.entries(projectId, "points");
+    return new Map(entries.map((entry) => [entry.id, entry.value ?? null]));
   }
   async schema(projectId) {
     const project2 = await this.client.get(
@@ -22223,6 +22237,21 @@ var tags = makeGetter(
   (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : []
 );
 var plain = (key) => makeGetter([key], (raw) => raw[key] ?? null);
+function pointsByRole(raw, labels) {
+  const rawPoints = raw.points;
+  const out = {};
+  if (!rawPoints || !labels.role || !labels.points) return out;
+  for (const [roleId, pointId] of Object.entries(rawPoints)) {
+    if (typeof pointId !== "number") continue;
+    const roleName = labels.role.get(Number(roleId));
+    if (roleName === void 0) continue;
+    const value = labels.points.get(pointId);
+    if (value === void 0 || value === null) continue;
+    out[roleName] = value;
+  }
+  return out;
+}
+var pointsByRoleGetter = makeGetter(["points"], pointsByRole);
 var SLIM = {
   userstory: {
     ref: plain("ref"),
@@ -22237,6 +22266,7 @@ var SLIM = {
     ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
+    points_by_role: pointsByRoleGetter,
     tags,
     is_blocked: plain("is_blocked"),
     is_closed: plain("is_closed"),
@@ -22406,7 +22436,9 @@ function registerProjectTools(server, ctx) {
 var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
 var assigneeUpdate = external_exports.string().optional().describe('Assignee full name; "" unassigns.');
 var dueDateUpdate = external_exports.string().optional().describe('ISO date; "" clears it.');
-var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe('Points: "5" for the primary role, {"Front":"5","Back":"3"} per role.');
+var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe(
+  `Points per role (preferred), e.g. {"Front":"5","Back":"3"}. A bare "5" goes to the project's first role by order \u2014 Taiga has no single "primary" role.`
+);
 var USER_STORY = {
   name: "userstory",
   path: "/userstories",
@@ -23020,12 +23052,22 @@ async function readLinks(ctx, projectId, resource, itemId, raw) {
   }
   return result;
 }
+var USER_STORY_EXTRA_LABELS = [
+  { map: "role", kind: "role" }
+];
 async function buildLabels(ctx, def, projectId) {
-  const wanted = def.labels ?? [];
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
-  );
-  return Object.fromEntries(resolved);
+  const wanted = def.name === "userstory" ? [...def.labels ?? [], ...USER_STORY_EXTRA_LABELS] : def.labels ?? [];
+  const [resolved, points] = await Promise.all([
+    Promise.all(
+      wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
+    ),
+    def.name === "userstory" ? ctx.cache.valueMap(projectId) : Promise.resolve(void 0)
+  ]);
+  const labels = Object.fromEntries(resolved);
+  if (points !== void 0) {
+    labels.points = points;
+  }
+  return labels;
 }
 async function locate(ctx, def, projectId, args) {
   if (typeof args.id === "number") return args.id;
@@ -23195,6 +23237,9 @@ function registerCrudTools(server, ctx, def) {
       const shaped = project(def.name, raw, fieldMode, labels);
       if (fieldMode === "full" && isLinkable(def.name)) {
         Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
+      }
+      if (fieldMode === "full" && def.name === "userstory") {
+        shaped.points_by_role = pointsByRole(raw, labels);
       }
       return ok(shaped);
     })
@@ -23514,13 +23559,6 @@ var SINGLE_RESOURCE_FIELDS = {
   role: "tasks",
   estimate: "tasks"
 };
-async function buildLabels2(ctx, def, projectId) {
-  const wanted = def.labels ?? [];
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
-  );
-  return Object.fromEntries(resolved);
-}
 function registerBulkTool(server, ctx) {
   defineTool(
     server,
@@ -23547,7 +23585,7 @@ function registerBulkTool(server, ctx) {
       }
       const def = BULK_RESOURCES[a.resource];
       const projectId = await ctx.cache.resolveProject(a.project);
-      const labels = await buildLabels2(ctx, def, projectId);
+      const labels = await buildLabels(ctx, def, projectId);
       const epicResolutions = /* @__PURE__ */ new Map();
       if (def.name === "userstory") {
         const names = new Set(
@@ -23679,7 +23717,7 @@ function registerBulkTool(server, ctx) {
 // src/tools/stats.ts
 var CAPACITY_PER_SPRINT = 40;
 var UNASSIGNED_LABEL = "\u0411\u0435\u0437 \u0438\u0441\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044F";
-var NO_ESTIMATE_ATTRIBUTE_NOTE = "\u041E\u0446\u0435\u043D\u043E\u043A \u0437\u0430\u0434\u0430\u0447 \u0432 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435\u0442: \u0437\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB \u0443 \u0437\u0430\u0434\u0430\u0447.";
+var NO_ESTIMATE_ATTRIBUTE_NOTE = "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u043F\u043E \u0437\u0430\u0434\u0430\u0447\u0430\u043C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430: \u0443 \u0437\u0430\u0434\u0430\u0447 \u043D\u0435\u0442 \u043F\u043E\u043B\u044F \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB. \u0421\u0447\u0438\u0442\u0430\u0439\u0442\u0435 \u043F\u043E \u043F\u043E\u0438\u043D\u0442\u0430\u043C \u0438\u0441\u0442\u043E\u0440\u0438\u0439 \u2014 taiga_userstory_list \u0441\u043E sprint \u043E\u0442\u0434\u0430\u0451\u0442 points \u0438 points_by_role.";
 async function sprintLoad(ctx, projectId, milestoneId) {
   const attrIds = await attributeIds(ctx, projectId, "task");
   const estimateAttrId = attrIds.get("\u041E\u0446\u0435\u043D\u043A\u0430");
