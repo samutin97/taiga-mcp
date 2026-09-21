@@ -23233,6 +23233,9 @@ function registerCrudTools(server, ctx, def) {
       if (fieldMode === "full" && isLinkable(def.name)) {
         Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
       }
+      if (fieldMode === "full" && def.name === "userstory") {
+        shaped.points_by_role = pointsByRole(raw, labels);
+      }
       return ok(shaped);
     })
   );

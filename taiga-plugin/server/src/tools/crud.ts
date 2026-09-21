@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type ToolContext, ok, guard, FIELDS_SCHEMA, PROJECT_SCHEMA, asFieldMode } from "../context.js";
-import { project, projectMany, type LabelMaps } from "../projections.js";
+import { project, projectMany, pointsByRole, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
 import type { LookupKind } from "../schema-cache.js";
@@ -397,6 +397,13 @@ export function registerCrudTools(
       // request per item, and slim list answers must not pay it.
       if (fieldMode === "full" && isLinkable(def.name)) {
         Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
+      }
+      // `fields: "full"` returns Taiga's raw `points` (`{"<role id>":
+      // <point id>}`), unreadable to a model without the same role/points
+      // maps `slim` uses — so a full userstory card gets the same
+      // `points_by_role` breakdown attached, without dropping the raw field.
+      if (fieldMode === "full" && def.name === "userstory") {
+        shaped.points_by_role = pointsByRole(raw, labels);
       }
       return ok(shaped);
     }),
