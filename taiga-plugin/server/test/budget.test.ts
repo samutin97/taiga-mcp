@@ -23,7 +23,7 @@ describe("tool schema budget", () => {
   it("names every tool taiga_<resource>_<action>", async () => {
     const client = await startClient();
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(42);
+    expect(tools).toHaveLength(43);
     for (const tool of tools) {
       expect(tool.name).toMatch(/^taiga_[a-z_]+$/);
       expect(tool.description ?? "").not.toEqual("");

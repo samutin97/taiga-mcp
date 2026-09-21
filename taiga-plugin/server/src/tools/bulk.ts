@@ -4,8 +4,10 @@ import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project, type LabelMaps } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
-import { resolveEpic, linkStoryToEpic, resolveSprint, resolvePoints } from "./crud.js";
+import { resolveEpic, linkStoryToEpic, resolveSprint } from "./crud.js";
 import { defineTool } from "../registry.js";
+import { pointsPayload } from "../points.js";
+import { createWithRoleEstimate, recalcStoryPoints, ROLE_TAGS, type RoleTag } from "../role-points.js";
 
 const MAX_ITEMS = 50;
 
@@ -13,6 +15,14 @@ const BULK_RESOURCES: Record<string, ResourceDef> = {
   userstory: USER_STORY,
   task: TASK,
   issue: ISSUE,
+};
+
+/** Fields limited to one resource kind; naming them on the wrong kind is an error, not a silent drop. */
+const SINGLE_RESOURCE_FIELDS: Record<string, string> = {
+  sprint: "user stories",
+  points: "user stories",
+  role: "tasks",
+  estimate: "tasks",
 };
 
 /**
@@ -54,7 +64,6 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
           ),
       },
       kind: "create",
-      confirm: true,
     },
     guard(async (args) => {
       const a = args as {
@@ -101,6 +110,11 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
       const created: Record<string, unknown>[] = [];
       const failed: { item: Record<string, unknown>; error: string }[] = [];
 
+      // Points get recalculated once per (story, role) pair after the loop,
+      // not once per item — fifty tasks landing on the same story and role
+      // should mean one recalculation, not fifty.
+      const rolePairs = new Map<string, { storyId: number; role: RoleTag; ref: number | null }>();
+
       for (const item of a.items) {
         try {
           // `epic` only makes sense for user stories; a task/issue item
@@ -125,32 +139,65 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
             );
           }
 
-          // `sprint` and `points` need the same resolution the single-create
-          // tool gives them, and only user stories offer them there. Sent raw,
-          // `points` is an opaque HTTP 500 from Taiga (it stores points as a
-          // per-role map) and `sprint` is an unknown field on the serializer:
-          // silently dropped, with the item still reported in `created` — the
-          // same silent-success failure the `epic` guards above exist to stop.
-          for (const field of ["sprint", "points"]) {
+          // `sprint`/`points` (user stories) and `role`/`estimate` (tasks)
+          // need the same resolution the matching single-create tool gives
+          // them, and each is only defined in that one resource's
+          // createFields. Sent raw, `points` is an opaque HTTP 500 from
+          // Taiga (it stores points as a per-role map) and `sprint` is an
+          // unknown field on the serializer: silently dropped, with the item
+          // still reported in `created` — the same silent-success failure
+          // the `epic` guards above exist to stop. `role`/`estimate` on a
+          // user story or issue would be dropped the same way if let through.
+          for (const [field, appliesTo] of Object.entries(SINGLE_RESOURCE_FIELDS)) {
             if (item[field] !== undefined && def.createFields[field] === undefined) {
               throw new TaigaError(
-                `"${field}" applies to user stories only, not to ${def.label} items.`,
+                `"${field}" applies to ${appliesTo} only, not to ${def.label} items.`,
               );
             }
           }
 
+          // Reached only for `resource: "task"` items — the loop above
+          // already rejected `role`/`estimate` on any other resource. A bad
+          // type here would otherwise reach `withRoleTag`/`writeAttributes`
+          // as a confusing low-level error instead of a clear one. `role`
+          // is also normalised and checked against ROLE_TAGS here — the
+          // single-create tool gets this for free from its zod enum, but
+          // bulk items skip per-field schema validation entirely, so an
+          // unrecognised or wrongly-cased role (e.g. "Front") would
+          // otherwise tag the task fine (withRoleTag lowercases) while
+          // silently never being found by recalcStoryPoints, which compares
+          // against the lowercase tag it just wrote.
+          if (item.role !== undefined && typeof item.role !== "string") {
+            throw new TaigaError(`"role" must be given as a string, not ${typeof item.role}.`);
+          }
+          if (item.estimate !== undefined && typeof item.estimate !== "number") {
+            throw new TaigaError(
+              `"estimate" must be given as a number, not ${typeof item.estimate}.`,
+            );
+          }
+          let role = item.role as string | undefined;
+          if (role !== undefined) {
+            role = role.toLowerCase();
+            if (!(ROLE_TAGS as readonly string[]).includes(role)) {
+              throw new TaigaError(
+                `"role" must be one of ${ROLE_TAGS.join(", ")}, not "${item.role}".`,
+              );
+            }
+          }
+          const estimate = item.estimate as number | undefined;
+
           const payload: Record<string, unknown> = { project: projectId };
           for (const [key, value] of Object.entries(item)) {
-            if (value === undefined || key === "epic") continue;
+            if (value === undefined || key === "epic" || key === "role" || key === "estimate") {
+              continue;
+            }
             if (key === "sprint") {
               payload.milestone =
                 value === "" ? null : await resolveSprint(ctx, projectId, String(value));
               continue;
             }
             if (key === "points") {
-              payload.points = await resolvePoints(
-                ctx, projectId, value as string | number,
-              );
+              payload.points = await pointsPayload(ctx, projectId, value as string | Record<string, string>);
               continue;
             }
             const lookup = def.lookups.find((entry) => entry.field === key);
@@ -178,9 +225,25 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
             epicId = resolution?.id;
           }
 
-          const row = await ctx.client.post<Record<string, unknown>>(def.path, payload);
+          // Same orchestration taiga_task_create uses — see
+          // createWithRoleEstimate in role-points.ts: checks «Оценка»
+          // exists before creating anything (if `estimate` is given), folds
+          // the role tag into `payload.tags` (if `role` is given), creates,
+          // writes the estimate, and reports which (story, role) pair — if
+          // any — owes a recalculation, batched below instead of run here.
+          const { row, recalcTarget } = await createWithRoleEstimate(
+            ctx, projectId, def.path, payload, role, estimate,
+          );
           if (epicId !== undefined) {
             await linkStoryToEpic(ctx, epicId, row.id as number);
+          }
+          if (recalcTarget) {
+            const storyExtra = row.user_story_extra_info as { ref?: number } | null | undefined;
+            rolePairs.set(`${recalcTarget.storyId}:${recalcTarget.role}`, {
+              storyId: recalcTarget.storyId,
+              role: recalcTarget.role,
+              ref: storyExtra?.ref ?? null,
+            });
           }
           created.push(project(def.name, row, "slim", labels));
         } catch (error) {
@@ -191,7 +254,15 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
         }
       }
 
-      return ok({ created, failed });
+      const storyPoints: { user_story: number | null; role: string; from: number | null; to: number }[] = [];
+      for (const { storyId, role, ref } of rolePairs.values()) {
+        const result = await recalcStoryPoints(ctx, projectId, storyId, role);
+        if (result) storyPoints.push({ user_story: ref, ...result });
+      }
+
+      return ok(
+        storyPoints.length > 0 ? { created, failed, story_points: storyPoints } : { created, failed },
+      );
     }),
   );
 }

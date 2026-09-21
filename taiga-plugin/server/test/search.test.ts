@@ -149,3 +149,34 @@ describe("taiga_search label resolution", () => {
     expect(json.wikipages[0].last_modifier).toBe("Ivan Petrov");
   });
 });
+
+describe("taiga_search does not invent fields Taiga omitted", () => {
+  it("leaves out tags and is_closed when the search hit never carried them", async () => {
+    const { server, handlerFor } = captureHandler();
+    const ctx = fakeContext(
+      {
+        count: 1,
+        tasks: [],
+        epics: [],
+        issues: [],
+        wikipages: [],
+        userstories: [
+          // A real /search hit: no tags, no is_closed, no *_extra_info —
+          // just what the endpoint's stripped serializer actually sends.
+          { id: 1, ref: 7, subject: "Поиск", status: 3 },
+        ],
+      },
+      { "userstory-status": new Map([[3, "New"]]) },
+    );
+
+    registerSearchTool(server, ctx);
+    const { json } = await callHandler(handlerFor("taiga_search"), { text: "поиск" });
+
+    expect(json.userstories).toHaveLength(1);
+    const hit = json.userstories[0];
+    expect(Object.keys(hit).sort()).toEqual(["ref", "status", "subject"]);
+    expect(hit).not.toHaveProperty("tags");
+    expect(hit).not.toHaveProperty("is_closed");
+    expect(hit).not.toHaveProperty("assigned_to");
+  });
+});

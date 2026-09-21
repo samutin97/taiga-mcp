@@ -210,6 +210,15 @@ describe("user story CRUD", () => {
     expect(gone.isError).toBe(true);
   });
 
+  it("возвращает описание в ответе создания", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "История с описанием",
+      description: "## Описание\n\nПроверяю, что описание вернулось.",
+    });
+    track(created.json.ref);
+    expect(created.json.description).toContain("описание вернулось");
+  });
+
   it("appends to the description instead of overwriting", async () => {
     const created = await call("taiga_userstory_create", {
       subject: "Append test",
@@ -287,6 +296,37 @@ describe("user story CRUD", () => {
     const updated = await call("taiga_userstory_update", { ref, points: "8" });
     expect(updated.isError).toBe(false);
     expect(updated.json.points).toBe(8);
+  });
+
+  it("проставляет поинты отдельно по ролям", async () => {
+    const created = await call("taiga_userstory_create", {
+      subject: "Поинты по ролям",
+      points: { Front: "5", Back: "3" },
+    });
+    const ref = track(created.json.ref);
+    const detail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(detail.json.total_points).toBe(8);
+  });
+
+  it("частичное обновление points по одной роли не затирает поинты других ролей", async () => {
+    // Verified live: Taiga's PATCH merges the sent per-role points map with
+    // the roles already stored on the story — sending only Front does not
+    // reset Back to unestimated. If this ever regressed, total_points would
+    // drop to just the updated role's value instead of adding onto the rest.
+    const created = await call("taiga_userstory_create", {
+      subject: "Частичное обновление поинтов",
+      points: { Front: "5", Back: "3" },
+    });
+    const ref = track(created.json.ref);
+    expect(created.json.points).toBe(8);
+
+    const updated = await call("taiga_userstory_update", { ref, points: { Front: "8" } });
+    expect(updated.isError).toBe(false);
+    // 8 (new Front) + 3 (untouched Back) — not 8 alone, which would mean Back got wiped.
+    expect(updated.json.points).toBe(11);
+
+    const after = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(after.json.total_points).toBe(11);
   });
 
   it("reorders the backlog and sets the co-assignee list by name", async () => {

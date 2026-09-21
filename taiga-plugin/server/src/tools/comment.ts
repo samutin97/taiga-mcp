@@ -12,7 +12,21 @@ const COMMENTABLE = {
   epic: { path: "/epics", history: "epic", resolverKey: "epic" },
 } as const;
 
-type Commentable = keyof typeof COMMENTABLE;
+export type Commentable = keyof typeof COMMENTABLE;
+
+/**
+ * Add a comment to a commentable item's history. Taiga takes a comment as a
+ * field on PATCH, not as its own resource. Shared with taiga_link, which
+ * posts the blocker-side comment through this same shape.
+ */
+export async function addComment(
+  ctx: ToolContext,
+  resource: Commentable,
+  id: number,
+  comment: string,
+): Promise<void> {
+  await ctx.client.patch(COMMENTABLE[resource].path, id, { comment });
+}
 
 const resourceArg = z
   .enum(["userstory", "task", "issue", "epic"])
@@ -99,10 +113,7 @@ export function registerCommentTools(server: McpServer, ctx: ToolContext): void 
         ctx, resource, projectId, a.id as number | undefined, a.ref as number | undefined,
       );
 
-      // Taiga takes a comment as a field on PATCH, not as its own resource.
-      await ctx.client.patch(COMMENTABLE[resource].path, id, {
-        comment: a.comment as string,
-      });
+      await addComment(ctx, resource, id, a.comment as string);
       return ok({ added: true, resource, id });
     }),
   );

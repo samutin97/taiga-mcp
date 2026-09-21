@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { startClient } from "../helpers/mcp-client.js";
+import { TaigaAuth } from "../../src/auth.js";
+import { TaigaClient } from "../../src/client.js";
+import type { TaigaConfig } from "../../src/config.js";
+import { resetAttributeCache } from "../../src/custom-attributes.js";
 
 const STAND = "http://localhost:9000";
 
@@ -391,5 +395,143 @@ describe("bulk create", () => {
       const linkedRefs = filtered.json.items.map((item: { ref: number }) => item.ref);
       expect(linkedRefs).toContain(json.created[0].ref);
     });
+  });
+});
+
+// The stand's `mcp-sandbox` project has no «Оценка» task custom field yet.
+// This suite creates it through the raw Taiga API before the test runs and
+// deletes it afterwards, copying the setup resources.test.ts's "оценка и
+// роль задачи" suite already uses rather than writing a second variant.
+function adminClient(): TaigaClient {
+  const config: TaigaConfig = { url: STAND, username: "admin", password: "TaigaLocal2026!" };
+  return new TaigaClient(config, new TaigaAuth(config));
+}
+
+describe("bulk create: оценка и роль задач", () => {
+  let attributeId: number | undefined;
+
+  beforeAll(async () => {
+    const client = adminClient();
+    const project = await client.get<{ id: number }>("/projects/by_slug", { slug: "mcp-sandbox" });
+    const attribute = await client.post<{ id: number }>("/task-custom-attributes", {
+      name: "Оценка",
+      project: project.id,
+      type: "number",
+    });
+    attributeId = attribute.id;
+  });
+
+  afterAll(async () => {
+    if (attributeId === undefined) return;
+    await adminClient().remove("/task-custom-attributes", attributeId).catch(() => {});
+  });
+
+  it("создаёт задачи с ролью и оценкой за один вызов", async () => {
+    const story = await call("taiga_userstory_create", { subject: "Массовые задачи" });
+    const ref = track(story.json.ref);
+    const result = await call("taiga_bulk_create", {
+      resource: "task",
+      items: [
+        { subject: "Форма", user_story: ref, role: "front", estimate: 2 },
+        { subject: "Эндпоинт", user_story: ref, role: "back", estimate: 5 },
+      ],
+    });
+    for (const item of result.json.created) trackTask(item.ref as number);
+    expect(result.json.created).toHaveLength(2);
+    const detail = await call("taiga_userstory_get", { ref, fields: "full" });
+    expect(detail.json.total_points).toBe(7);
+  });
+
+  it("не роняет остальные элементы, если запись оценки падает", async () => {
+    const story = await call("taiga_userstory_create", { subject: "Массовые задачи без поля" });
+    const ref = track(story.json.ref);
+
+    // Delete the attribute for the duration of this one test so the estimate
+    // check fails via requireAttribute before the task with `estimate` is
+    // created, same as a single taiga_task_create would. attributeIds caches
+    // for 60s, so the earlier test's lookup must be evicted or this call
+    // would still see the now-deleted field.
+    await adminClient().remove("/task-custom-attributes", attributeId!);
+    resetAttributeCache();
+    try {
+      const result = await call("taiga_bulk_create", {
+        resource: "task",
+        items: [
+          { subject: "Без оценки", user_story: ref },
+          { subject: "С оценкой", user_story: ref, role: "front", estimate: 2 },
+        ],
+      });
+      for (const item of result.json.created) trackTask(item.ref as number);
+
+      expect(result.json.created).toHaveLength(1);
+      expect(result.json.created[0].subject).toBe("Без оценки");
+      expect(result.json.failed).toHaveLength(1);
+      expect(result.json.failed[0].item.subject).toBe("С оценкой");
+      expect(result.json.failed[0].error).toMatch(/Оценка/);
+    } finally {
+      const client = adminClient();
+      const project = await client.get<{ id: number }>("/projects/by_slug", { slug: "mcp-sandbox" });
+      const attribute = await client.post<{ id: number }>("/task-custom-attributes", {
+        name: "Оценка",
+        project: project.id,
+        type: "number",
+      });
+      attributeId = attribute.id;
+      // Otherwise the "field is missing" state fetched right after the
+      // delete above stays cached for up to 60s, poisoning any later test
+      // in this same process even though the field exists again now.
+      resetAttributeCache();
+    }
+  });
+
+  it("нормализует регистр role и пересчёт поинтов всё равно срабатывает", async () => {
+    const story = await call("taiga_userstory_create", { subject: "Массовые задачи: регистр роли" });
+    const ref = track(story.json.ref);
+    const result = await call("taiga_bulk_create", {
+      resource: "task",
+      items: [{ subject: "Капс роль", user_story: ref, role: "Front", estimate: 2 }],
+    });
+    for (const item of result.json.created) trackTask(item.ref as number);
+
+    expect(result.json.created).toHaveLength(1);
+    expect(result.json.created[0].tags).toContain("front");
+    expect(result.json.story_points).toEqual([{ user_story: ref, role: "Front", from: null, to: 2 }]);
+  });
+
+  it("отклоняет неизвестную роль со списком допустимых значений", async () => {
+    const story = await call("taiga_userstory_create", { subject: "Массовые задачи: неизвестная роль" });
+    const ref = track(story.json.ref);
+    const result = await call("taiga_bulk_create", {
+      resource: "task",
+      items: [{ subject: "Плохая роль", user_story: ref, role: "manager" }],
+    });
+    expect(result.json.created).toHaveLength(0);
+    expect(result.json.failed).toHaveLength(1);
+    expect(result.json.failed[0].error).toMatch(/front, back, ux, design/);
+  });
+
+  it("отклоняет role/estimate у истории и issue, как остальные незнакомые поля", async () => {
+    const story = await call("taiga_bulk_create", {
+      resource: "userstory",
+      items: [{ subject: "Bulk story with role", role: "front" }],
+    });
+    for (const item of story.json.created) track(item.ref as number);
+    expect(story.json.created).toHaveLength(0);
+    expect(story.json.failed).toHaveLength(1);
+    expect(story.json.failed[0].error).toMatch(/role/i);
+
+    const issue = await call("taiga_bulk_create", {
+      resource: "issue",
+      items: [{ subject: "Bulk issue with estimate", estimate: 3 }],
+    });
+    try {
+      expect(issue.json.created).toHaveLength(0);
+      expect(issue.json.failed).toHaveLength(1);
+      expect(issue.json.failed[0].error).toMatch(/estimate/i);
+    } finally {
+      for (const item of issue.json.created) {
+        await call("taiga_issue_delete", { ref: item.ref, confirm: true });
+      }
+    }
   });
 });

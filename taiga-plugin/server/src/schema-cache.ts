@@ -1,5 +1,6 @@
 import type { TaigaClient } from "./client.js";
 import { TaigaError } from "./errors.js";
+import { attributeSummaries, type AttrResource } from "./custom-attributes.js";
 
 export type LookupKind =
   | "userstory-status"
@@ -31,6 +32,15 @@ export interface LookupEntry {
   name: string;
   /** Extra label used to disambiguate duplicates, e.g. a member's email. */
   qualifier?: string;
+  /** Member's Taiga login. Only set for kind "member". */
+  username?: string;
+  /** Member's role in the project. Only set for kind "member". */
+  role?: string;
+}
+
+export interface CustomFieldEntry {
+  name: string;
+  type: string;
 }
 
 export interface ProjectSchema {
@@ -38,6 +48,8 @@ export interface ProjectSchema {
   slug: string;
   name: string;
   lookups: Record<LookupKind, LookupEntry[]>;
+  /** The four team-convention fields («Оценка», «Блокируется», …) live here, when set up. */
+  customFields: Record<AttrResource, CustomFieldEntry[]>;
 }
 
 interface CacheOptions {
@@ -150,6 +162,8 @@ export class SchemaCache {
               id: row.user as number,
               name: String(row.full_name ?? row.email ?? ""),
               qualifier: row.email ? String(row.email) : undefined,
+              username: row.username ? String(row.username) : undefined,
+              role: row.role_name ? String(row.role_name) : undefined,
             }))
         : raw.map((row) => ({ id: row.id as number, name: String(row.name) }));
 
@@ -166,21 +180,35 @@ export class SchemaCache {
 
     const entries = await this.entries(projectId, kind);
     const needle = value.trim().toLowerCase();
-    const matches = entries.filter((entry) => entry.name.toLowerCase() === needle);
+    const matches = entries.filter((entry) =>
+      [entry.name, entry.username, entry.qualifier]
+        .filter((key): key is string => typeof key === "string" && key.length > 0)
+        .some((key) => key.toLowerCase() === needle),
+    );
 
     if (matches.length === 1) return matches[0].id;
 
+    // Members are looked up by name, login or email, so candidates in error
+    // hints are shown as "Full Name (login)" -- the login is what the caller
+    // can retype to disambiguate. Other lookup kinds keep their prior label.
+    const describe = (entry: LookupEntry): string =>
+      kind === "member"
+        ? entry.username
+          ? `${entry.name} (${entry.username})`
+          : entry.name
+        : entry.qualifier ?? String(entry.id);
+
     if (matches.length > 1) {
-      const options = matches
-        .map((entry) => entry.qualifier ?? String(entry.id))
-        .join(", ");
+      const options = matches.map(describe).join(", ");
       throw new TaigaError(
         `"${value}" matches more than one ${kind} in this project.`,
         { hint: `Disambiguate using one of: ${options}` },
       );
     }
 
-    const valid = entries.map((entry) => entry.name).join(", ");
+    const valid = entries
+      .map((entry) => (kind === "member" ? describe(entry) : entry.name))
+      .join(", ");
     throw new TaigaError(`"${value}" is not a valid ${kind} in this project.`, {
       hint: `Valid values: ${valid}`,
     });
@@ -205,11 +233,18 @@ export class SchemaCache {
     const collected = await Promise.all(
       kinds.map(async (kind) => [kind, await this.entries(projectId, kind)] as const),
     );
+    const resources: AttrResource[] = ["task", "userstory"];
+    const customFields = await Promise.all(
+      resources.map(
+        async (resource) => [resource, await attributeSummaries({ client: this.client }, projectId, resource)] as const,
+      ),
+    );
     return {
       id: project.id,
       slug: project.slug,
       name: project.name,
       lookups: Object.fromEntries(collected) as ProjectSchema["lookups"],
+      customFields: Object.fromEntries(customFields) as ProjectSchema["customFields"],
     };
   }
 }

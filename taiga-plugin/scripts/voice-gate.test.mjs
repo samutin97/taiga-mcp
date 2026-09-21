@@ -31,23 +31,52 @@ test("soft: heading labels", () => {
   assert.equal(checkText("Контекст задачи такой: логин падает").length, 0);
 });
 
-test("soft: emoji, bureaucratese, as-a-user, bullet wall", () => {
+test("soft: emoji, bureaucratese, bullet wall", () => {
   assert.deepEqual(ids(checkText("Готово ✅")), ["emoji"]);
   assert.deepEqual(ids(checkText("В рамках данной задачи необходимо обеспечить")), ["bureaucratese", "bureaucratese"]);
-  assert.deepEqual(ids(checkText("Как менеджер, я хочу видеть отчёт")), ["as-a-user"]);
-  assert.equal(checkText("Как договаривались, я хочу закрыть это до пятницы").length, 1, "false positive accepted: comma after role-like phrase");
   const wall = Array.from({ length: 6 }, (_, i) => `- пункт ${i}`).join("\n");
   assert.deepEqual(ids(checkText(wall)), ["bullet-wall"]);
   assert.equal(checkText(wall.split("\n").slice(0, 5).join("\n")).length, 0);
+});
+
+// The spec and skills/taiga-voice/voice.md now endorse this exact opening
+// when the story has a real external role ("Как менеджер, я хочу выгружать
+// отчёт в Excel, чтобы не считать вручную") — the old "as-a-user" rule
+// flagged every well-formed story that used it. It is gone from
+// voice-rules.json; this proves the opening passes clean while the other
+// soft rules (unrelated to this pattern) still fire as before.
+test("soft: «Как <роль>, я хочу…» no longer flagged; unrelated soft rules still fire", () => {
+  assert.deepEqual(checkText("Как менеджер, я хочу выгружать отчёт в Excel, чтобы не считать вручную"), []);
+  assert.deepEqual(checkText("- Как менеджер, я хочу видеть отчёт"), []);
+  assert.deepEqual(checkText("Как договаривались, я хочу закрыть это до пятницы"), []);
+  assert.deepEqual(ids(checkText("Готово ✅")), ["emoji"]);
+  assert.deepEqual(ids(checkText("Контекст: у нас падает логин")), ["heading-label"]);
+  assert.deepEqual(ids(checkText("В рамках данной задачи необходимо обеспечить")), ["bureaucratese", "bureaucratese"]);
 });
 
 test("soft: rubrics prefixed with a list marker or a quote, and the widened emoji class", () => {
   assert.deepEqual(ids(checkText("- Контекст: x")), ["heading-label"]);
   assert.deepEqual(ids(checkText("1. Задача: y")), ["heading-label"]);
   assert.deepEqual(ids(checkText("> Контекст: z")), ["heading-label"]);
-  assert.deepEqual(ids(checkText("- Как менеджер, я хочу видеть отчёт")), ["as-a-user"]);
   assert.deepEqual(ids(checkText("✨ готово")), ["emoji"]);
   assert.equal(checkText("Починил логин — теперь «вход» работает, № задачи не менялся…").length, 0, "dash, guillemets, numero sign, ellipsis are not emoji or rubrics");
+});
+
+test("рубрика-заголовок в описании проходит", () => {
+  const findings = checkText(
+    "## Описание\n\nЧтобы поддержка перестала сбрасывать пароли руками.\n\n## Критерии приёмки\n\nПисьмо приходит за минуту.",
+  );
+  assert.deepEqual(findings.filter((f) => f.id === "heading-label"), []);
+});
+
+test("рубрика с двоеточием по-прежнему ловится", () => {
+  const findings = checkText("Контекст: провёл проверку функционала.");
+  assert.ok(findings.some((f) => f.id === "heading-label"));
+});
+
+test("рубрика с двоеточием ловится и под markdown-заголовком", () => {
+  const findings = checkText("## Контекст: было так");
+  assert.ok(findings.some((f) => f.id === "heading-label"));
 });
 
 test("checkArgs walks top-level fields and items[]", () => {

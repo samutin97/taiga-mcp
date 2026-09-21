@@ -13,7 +13,8 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
       description:
         "Full-text search across a project's user stories, tasks, issues, epics and " +
         "wiki pages. Use it when you know roughly what an item is called but not its #ref. " +
-        "For a full listing use taiga_<resource>_list.",
+        "For a full listing use taiga_<resource>_list. " +
+        "Returns only the fields Taiga actually sent back; use taiga_*_get for the rest.",
       input: {
         project: PROJECT_SCHEMA,
         text: z.string().min(1).describe("Search query."),
@@ -56,7 +57,7 @@ export function registerSearchTool(server: McpServer, ctx: ToolContext): void {
         key: string,
         resource: ResourceName,
         labels: LabelMaps = {},
-      ) => projectMany(resource, (found[key] as Record<string, unknown>[]) ?? [], "slim", labels);
+      ) => projectMany(resource, (found[key] as Record<string, unknown>[]) ?? [], "found", labels);
 
       return ok({
         count: found.count ?? 0,

@@ -10,8 +10,9 @@ const EXPECTED = [
   "taiga-voice", "taiga-setup", "taiga-sprint-report", "taiga-backlog-grooming",
   "taiga-stories-from-spec", "taiga-issue-triage", "taiga-worklog",
   "taiga-prioritize", "taiga-estimate", "taiga-test-plan", "taiga-backlog-health",
+  "taiga-requirements", "taiga-model", "taiga-distribute", "taiga-workflow",
 ];
-const WRITERS = ["taiga-worklog", "taiga-backlog-grooming", "taiga-stories-from-spec", "taiga-issue-triage", "taiga-prioritize", "taiga-estimate", "taiga-test-plan"];
+const WRITERS = ["taiga-worklog", "taiga-backlog-grooming", "taiga-stories-from-spec", "taiga-issue-triage", "taiga-prioritize", "taiga-estimate", "taiga-test-plan", "taiga-distribute", "taiga-workflow"];
 const READ_ONLY = ["taiga-sprint-report", "taiga-backlog-health"];
 const PORTABLE_KEYS = new Set(["name", "description", "allowed-tools", "license", "compatibility", "metadata"]);
 
@@ -24,7 +25,7 @@ function read(skill: string) {
 }
 
 describe("skills", () => {
-  it("ships all eleven skills", () => {
+  it("ships all fifteen skills", () => {
     expect(readdirSync(SKILLS_DIR).sort()).toEqual([...EXPECTED].sort());
   });
 

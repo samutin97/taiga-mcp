@@ -5,6 +5,90 @@ import { project, projectMany, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
 import { defineTool } from "../registry.js";
+import { pointsPayload } from "../points.js";
+import {
+  type AttrResource,
+  attributeIds,
+  readAttributes,
+  requireAttribute,
+  writeAttributes,
+} from "../custom-attributes.js";
+import {
+  withRoleTag,
+  recalcStoryPoints,
+  effectiveRole,
+  createWithRoleEstimate,
+  type RoleTag,
+} from "../role-points.js";
+import { refsFromLinks, MANUAL_UNBLOCK_HINT } from "./link.js";
+
+/** Only stories and tasks carry blocking relations — the two `AttrResource` kinds. */
+function isLinkable(name: ResourceDef["name"]): name is AttrResource {
+  return name === "userstory" || name === "task";
+}
+
+/**
+ * Coerce a raw «Оценка» attribute value the same way role-points.ts and
+ * stats.ts already do: Taiga's custom fields aren't type-checked server
+ * side, so a "number" field can still hold a string (typed by hand in
+ * Taiga's UI) — `Number("5")` recovers that, while `Number("abc")` (or a
+ * missing value) must read as "no estimate", not as 0 or NaN.
+ */
+function parseEstimate(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * `blocked_by`/`blocks`/`estimate` for a `fields: "full"` card.
+ *
+ * The note (`blocked_note`) is the sole source of truth for `blocked_by` —
+ * task 10's truth rule holds here too, so a ref that landed only in the
+ * «Блокируется» field (say, someone hand-edited it in Taiga's UI) never
+ * resurrects a link the note doesn't name; the field is a shop window, not
+ * read for this direction at all.
+ *
+ * `blocks` has no note counterpart — it exists only in «Блокирует» — so a
+ * project without that field honestly reports no blocks instead of guessing,
+ * and the extra request to read it is skipped entirely.
+ *
+ * `estimate` is the numeric value of «Оценка», a task-only convention:
+ * nothing in this codebase reads or writes that field against a story (see
+ * createWithRoleEstimate/recalcStoryPoints in role-points.ts, both hardcoded
+ * to the "task" resource), so it is attached only when `resource === "task"` —
+ * a userstory's full card keeps just `blocked_by`/`blocks`, unchanged.
+ *
+ * `blocks` and `estimate` both live in the same attributes_values row, so
+ * this issues at most one `readAttributes` call per item — never one for
+ * each field — and only when at least one of «Блокирует»/«Оценка» is
+ * actually defined in the project.
+ */
+async function readLinks(
+  ctx: ToolContext,
+  projectId: number,
+  resource: AttrResource,
+  itemId: number,
+  raw: Record<string, unknown>,
+): Promise<{ blocked_by: number[]; blocks: number[]; estimate?: number | null }> {
+  const note = typeof raw.blocked_note === "string" ? raw.blocked_note : null;
+  const ids = await attributeIds(ctx, projectId, resource);
+  const blocksAttrId = ids.get("Блокирует");
+  const estimateAttrId = resource === "task" ? ids.get("Оценка") : undefined;
+  const values =
+    blocksAttrId !== undefined || estimateAttrId !== undefined
+      ? await readAttributes(ctx, resource, itemId)
+      : null;
+  const result: { blocked_by: number[]; blocks: number[]; estimate?: number | null } = {
+    blocked_by: refsFromLinks(note, null),
+    blocks: blocksAttrId === undefined ? [] : refsFromLinks(null, values?.[String(blocksAttrId)]),
+  };
+  if (resource === "task") {
+    result.estimate =
+      estimateAttrId === undefined ? null : parseEstimate(values?.[String(estimateAttrId)]);
+  }
+  return result;
+}
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
@@ -184,44 +268,6 @@ async function applyEpicLink(
   await linkStoryToEpic(ctx, epicId, storyId);
 }
 
-/**
- * Resolve a human points value (e.g. "5") to the per-role map Taiga's
- * userstory.points field actually requires.
- *
- * Verified live: Taiga stores points as `{ roleId: pointsEntryId }`, one
- * entry per computable role. Sending a bare string or number — the shape the
- * brief's draft schema implied — crashes the server with an opaque HTTP 500
- * instead of a validation error. The value is written to the project's
- * primary role (lowest `order` among computable roles); Taiga defaults any
- * other computable role to "unestimated" on create and leaves it untouched
- * on update, so a single human value maps onto the per-role model without
- * the caller ever seeing roles.
- *
- * Exported so `taiga_bulk_create` can reuse it: a bare string here is the
- * HTTP 500 described above.
- */
-export async function resolvePoints(
-  ctx: ToolContext,
-  projectId: number,
-  value: string | number,
-): Promise<Record<string, number>> {
-  const pointsId = await ctx.cache.resolveLookup(projectId, "points", value);
-  // page_size explicit: Taiga's default page (30) would silently hide a
-  // computable role on a project with more roles than that, and the "primary"
-  // role picked below would then be the wrong one.
-  const roles = await ctx.client.list<{ id: number; order: number; computable: boolean }>(
-    "/roles",
-    { project: projectId, page_size: 1000 },
-  );
-  const primary = roles.items
-    .filter((role) => role.computable)
-    .sort((a, b) => a.order - b.order)[0];
-  if (!primary) {
-    throw new TaigaError("This project has no computable role to hold story points.");
-  }
-  return { [primary.id]: pointsId };
-}
-
 export function registerCrudTools(
   server: McpServer,
   ctx: ToolContext,
@@ -325,7 +371,14 @@ export function registerCrudTools(
       const id = await locate(ctx, def, projectId, a);
       const raw = await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, raw, asFieldMode(a.fields), labels));
+      const fieldMode = asFieldMode(a.fields);
+      const shaped = project(def.name, raw, fieldMode, labels);
+      // Only `fields: "full"` pays for this — reading attributes costs a
+      // request per item, and slim list answers must not pay it.
+      if (fieldMode === "full" && isLinkable(def.name)) {
+        Object.assign(shaped, await readLinks(ctx, projectId, def.name, id, raw));
+      }
+      return ok(shaped);
     }),
   );
 
@@ -339,7 +392,7 @@ export function registerCrudTools(
       kind: "create",
     },
     guard(async (args) => {
-      const { project: ref, sprint, points, epic, ...rest } = args as Record<string, unknown>;
+      const { project: ref, sprint, points, epic, estimate, role, ...rest } = args as Record<string, unknown>;
       const projectId = await ctx.cache.resolveProject(ref as string | undefined);
       const payload = await resolveFields(ctx, def, projectId, rest);
       payload.project = projectId;
@@ -351,16 +404,30 @@ export function registerCrudTools(
         payload.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
-        payload.points = await resolvePoints(ctx, projectId, points as string | number);
+        payload.points = await pointsPayload(ctx, projectId, points as string | Record<string, string>);
       }
-      const created = await ctx.client.post<Record<string, unknown>>(def.path, payload);
+      // «Оценка» (if `estimate` is given) is checked before anything is
+      // created, so a missing field errors with nothing created instead of
+      // leaving an orphaned task with no ref to clean up. Shared with
+      // taiga_bulk_create's per-item task creation — see createWithRoleEstimate.
+      const { row: created, recalcTarget } = await createWithRoleEstimate(
+        ctx, projectId, def.path, payload, role as string | undefined, estimate as number | undefined,
+      );
       // The link needs the story's id, so it can only happen after create
       // returns. An empty string here (nothing to unlink yet) is a no-op.
       if (typeof epic === "string" && epic !== "") {
         await applyEpicLink(ctx, projectId, created.id as number, epic, null);
       }
+      const storyPoints = recalcTarget
+        ? await recalcStoryPoints(ctx, projectId, recalcTarget.storyId, recalcTarget.role)
+        : null;
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, created, "slim", labels));
+      const shaped = project(def.name, created, "slim", labels);
+      if (typeof payload.description === "string") {
+        shaped.description = created.description ?? payload.description;
+      }
+      if (storyPoints) shaped.story_points = storyPoints;
+      return ok(shaped);
     }),
   );
 
@@ -402,11 +469,14 @@ export function registerCrudTools(
       const appendText = a.append_description as string | undefined;
       const addTags = a.add_tags as string[] | undefined;
       const sprint = a.sprint as string | undefined;
-      const points = a.points as string | number | undefined;
+      const points = a.points as string | Record<string, string> | undefined;
       const epic = a.epic as string | undefined;
       const assignedUsers = a.assigned_users as string[] | undefined;
+      const estimate = a.estimate as number | undefined;
+      const role = a.role as string | undefined;
       for (const key of [
         "project", "id", "ref", "slug", "append_description", "add_tags", "sprint", "points", "epic", "assigned_users",
+        "estimate", "role",
       ]) {
         delete a[key];
       }
@@ -421,7 +491,7 @@ export function registerCrudTools(
         changes.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
       if (points !== undefined) {
-        changes.points = await resolvePoints(ctx, projectId, points);
+        changes.points = await pointsPayload(ctx, projectId, points);
       }
       // A list of names, resolved one by one against the member table;
       // the single-assignee path (assigned_to) already goes through resolveFields.
@@ -434,14 +504,39 @@ export function registerCrudTools(
         changes.assigned_users = [...new Set(ids)];
       }
 
-      if (appendText !== undefined || addTags !== undefined) {
+      // Lazy and shared: at most one extra GET, paid only by the branches
+      // below that actually need the record as it stood before this PATCH.
+      let cachedCurrent: Record<string, unknown> | undefined;
+      const loadCurrent = async (): Promise<Record<string, unknown>> => {
+        if (!cachedCurrent) {
+          cachedCurrent = await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
+        }
+        return cachedCurrent;
+      };
+
+      // A block removed by hand — clearing is_blocked or blanking
+      // blocked_note instead of calling taiga_link with remove: true — only
+      // ever writes this side. Say so without refusing the write or doing
+      // any extra write of our own; the value the caller asked for still
+      // applies as given.
+      let blockHint: string | undefined;
+      if (isLinkable(def.name)) {
+        const clearsFlag = changes.is_blocked === false;
+        const blanksNote =
+          typeof changes.blocked_note === "string" && changes.blocked_note.trim() === "";
+        if (clearsFlag || blanksNote) {
+          const before = await loadCurrent();
+          const beforeNote = typeof before.blocked_note === "string" ? before.blocked_note : "";
+          if (refsFromLinks(beforeNote, null).length > 0) blockHint = MANUAL_UNBLOCK_HINT;
+        }
+      }
+
+      if (appendText !== undefined || addTags !== undefined || role !== undefined) {
         // A value passed in this same call (already resolved into `changes`)
         // takes precedence over the server's current value as the base to
         // append/add onto — otherwise an explicit `description`/`tags` here
         // would be silently discarded in favour of the stale server value.
-        const current = await ctx.client.get<Record<string, unknown>>(
-          `${def.path}/${id}`,
-        );
+        const current = await loadCurrent();
         if (appendText !== undefined) {
           const base =
             typeof changes.description === "string"
@@ -457,9 +552,45 @@ export function registerCrudTools(
               : [];
           changes.tags = [...new Set([...(base as string[]), ...addTags])];
         }
+        if (role !== undefined) {
+          const base = Array.isArray(changes.tags)
+            ? (changes.tags as string[])
+            : Array.isArray(current.tags)
+              ? (current.tags as unknown[]).map((t) => (Array.isArray(t) ? t[0] : t))
+              : [];
+          changes.tags = withRoleTag(base as string[], role);
+        }
       }
 
-      if (Object.keys(changes).length === 0 && epic === undefined) {
+      // A role change, a story move (user_story) or an estimate write can
+      // each shift which (story, role) pair owes this task's estimate.
+      // Recomputing only the pair the task ends up in (the old code) leaves
+      // the pair it *left* stale — still counting an estimate that no
+      // longer belongs there. Snapshot the role/story the task carried
+      // before this write; `updated` below gives the values after it.
+      const touchesPoints =
+        def.name === "task" &&
+        (estimate !== undefined || role !== undefined || changes.user_story !== undefined);
+      let beforeRole: RoleTag | undefined;
+      let beforeStoryId: number | undefined;
+      let beforeStoryRef: number | null = null;
+      if (touchesPoints) {
+        const before = await loadCurrent();
+        beforeRole = effectiveRole(undefined, before.tags);
+        beforeStoryId = typeof before.user_story === "number" ? before.user_story : undefined;
+        beforeStoryRef =
+          (before.user_story_extra_info as { ref?: number } | null | undefined)?.ref ?? null;
+      }
+
+      // `estimate` never lands in `changes` — it is written separately via
+      // writeAttributes below — so without this it would trip the guard and
+      // block the "just log an estimate" call, the primary use of this field.
+      if (
+        Object.keys(changes).length === 0 &&
+        epic === undefined &&
+        estimate === undefined &&
+        role === undefined
+      ) {
         throw new TaigaError(`Nothing to change on this ${def.label}.`);
       }
 
@@ -477,8 +608,66 @@ export function registerCrudTools(
         );
       }
 
+      if (typeof estimate === "number") {
+        const ids = await attributeIds(ctx, projectId, "task");
+        await writeAttributes(ctx, "task", id, {
+          [requireAttribute(ids, "Оценка")]: estimate,
+        });
+      }
+      // Every (story, role) pair this write actually touched, deduplicated:
+      // the pair the task left (if different from where it ends up) and
+      // the pair it ends up in. `leaving: true` tells recalcStoryPoints to
+      // write zero instead of leaving a stale sum when nothing of that role
+      // remains — never passed for the pair the task is *entering*, so a
+      // role/estimate tagged for the first time still shows nothing until
+      // it actually has an estimate (see role-points.ts).
+      let storyPoints: unknown = null;
+      if (touchesPoints) {
+        const afterRole = effectiveRole(role, updated.tags);
+        const afterStoryId = typeof updated.user_story === "number" ? updated.user_story : undefined;
+        const afterStoryRef =
+          (updated.user_story_extra_info as { ref?: number } | null | undefined)?.ref ?? null;
+
+        const beforeKey =
+          beforeStoryId !== undefined && beforeRole !== undefined
+            ? `${beforeStoryId}:${beforeRole}`
+            : undefined;
+        const afterKey =
+          afterStoryId !== undefined && afterRole !== undefined
+            ? `${afterStoryId}:${afterRole}`
+            : undefined;
+
+        const pairs: { storyId: number; role: RoleTag; ref: number | null; leaving: boolean }[] = [];
+        if (beforeKey !== undefined) {
+          pairs.push({
+            storyId: beforeStoryId!,
+            role: beforeRole!,
+            ref: beforeStoryRef,
+            leaving: beforeKey !== afterKey,
+          });
+        }
+        if (afterKey !== undefined && afterKey !== beforeKey) {
+          pairs.push({ storyId: afterStoryId!, role: afterRole!, ref: afterStoryRef, leaving: false });
+        }
+
+        const recalced: Array<{ user_story: number | null } & NonNullable<Awaited<ReturnType<typeof recalcStoryPoints>>>> = [];
+        for (const pair of pairs) {
+          const result = await recalcStoryPoints(ctx, projectId, pair.storyId, pair.role, pair.leaving);
+          if (result) recalced.push({ user_story: pair.ref, ...result });
+        }
+        // Always return an array to match taiga_bulk_create and provide
+        // consistent shape across the API. Empty array when nothing was
+        // recomputed (none of the touched fields apply to this resource).
+        if (recalced.length > 0) {
+          storyPoints = recalced;
+        }
+      }
+
       const labels = await buildLabels(ctx, def, projectId);
-      return ok(project(def.name, updated, "slim", labels));
+      const shaped = project(def.name, updated, "slim", labels);
+      if (storyPoints) shaped.story_points = storyPoints;
+      if (blockHint) shaped.hint = blockHint;
+      return ok(shaped);
     }),
   );
 
@@ -511,8 +700,31 @@ export function registerCrudTools(
       }
       const projectId = await ctx.cache.resolveProject(a.project as string | undefined);
       const id = await locate(ctx, def, projectId, a);
+
+      // A deleted task drops out of the (story, role) query recalcStoryPoints
+      // runs, so its role and story must be read before the delete — otherwise
+      // the story it leaves keeps counting an estimate for a task that no
+      // longer exists. `leaving: true` (recalcStoryPoints' emptyMeansZero)
+      // writes zero for that role instead of leaving the stale sum in place
+      // when this was the last estimated task of that role on the story.
+      let pointsTarget: { storyId: number; role: RoleTag } | undefined;
+      if (def.name === "task") {
+        const current = await ctx.client.get<Record<string, unknown>>(`${def.path}/${id}`);
+        const currentRole = effectiveRole(undefined, current.tags);
+        if (currentRole && typeof current.user_story === "number") {
+          pointsTarget = { storyId: current.user_story, role: currentRole };
+        }
+      }
+
       await ctx.client.remove(def.path, id);
-      return ok({ deleted: true, resource: def.name, id });
+
+      const storyPoints = pointsTarget
+        ? await recalcStoryPoints(ctx, projectId, pointsTarget.storyId, pointsTarget.role, true)
+        : null;
+
+      const result: Record<string, unknown> = { deleted: true, resource: def.name, id };
+      if (storyPoints) result.story_points = storyPoints;
+      return ok(result);
     }),
   );
 }
