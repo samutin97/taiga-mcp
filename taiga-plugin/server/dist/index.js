@@ -22229,6 +22229,7 @@ var numberOrName = (name) => {
   const value = Number(trimmed);
   return Number.isFinite(value) ? value : name;
 };
+var UNESTIMATED_POINT = "?";
 var pointsByRole = makeGetter(["points"], (raw, labels) => {
   const rawPoints = raw.points;
   const out = {};
@@ -22238,6 +22239,7 @@ var pointsByRole = makeGetter(["points"], (raw, labels) => {
     const roleName = labels.role.get(Number(roleId));
     const pointName = labels.points.get(pointId);
     if (roleName === void 0 || pointName === void 0) continue;
+    if (pointName === UNESTIMATED_POINT) continue;
     out[roleName] = numberOrName(pointName);
   }
   return out;

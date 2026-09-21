@@ -98,8 +98,14 @@ const numberOrName = (name: string): number | string => {
  * it names neither the role nor the point value. Resolves both through the
  * project's `role`/`points` lookup maps into `{"<role name>": <point value>}`.
  * A role with no point id (null) — or one whose point id the map can't
- * resolve — is left out entirely: absence isn't the same as zero.
+ * resolve — is left out entirely: absence isn't the same as zero. So is a
+ * role sitting on Taiga's own "not estimated" point, named `?`: every
+ * project starts with it, and every role a story never estimated points at
+ * it, so passing it through would report four estimated roles on a story
+ * that has one.
  */
+const UNESTIMATED_POINT = "?";
+
 const pointsByRole: Getter = makeGetter(["points"], (raw, labels) => {
   const rawPoints = raw.points as Record<string, unknown> | null | undefined;
   const out: Record<string, number | string> = {};
@@ -109,6 +115,7 @@ const pointsByRole: Getter = makeGetter(["points"], (raw, labels) => {
     const roleName = labels.role.get(Number(roleId));
     const pointName = labels.points.get(pointId);
     if (roleName === undefined || pointName === undefined) continue;
+    if (pointName === UNESTIMATED_POINT) continue;
     out[roleName] = numberOrName(pointName);
   }
   return out;

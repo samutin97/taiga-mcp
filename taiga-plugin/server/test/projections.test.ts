@@ -327,6 +327,7 @@ describe("projections", () => {
       [3, "UX"],
     ]);
     const pointsLabels = new Map([
+      [9, "?"],
       [10, "5"],
       [11, "3"],
       [12, "½"],
@@ -363,6 +364,25 @@ describe("projections", () => {
 
       expect(result.points_by_role).toEqual({ Front: 5, UX: "½" });
       expect(result.points_by_role).not.toHaveProperty("Back");
+    });
+
+    it("omits a role left on Taiga's own «?» point — it means not estimated", () => {
+      // Every Taiga project ships a `?` point and every role starts on it,
+      // so a story estimated for Front alone arrives with all four roles
+      // filled in. Passing `?` through reported four estimated roles.
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "1": 10, "2": 9, "3": 9 },
+        tags: [],
+      };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({ Front: 5 });
     });
 
     it("returns an empty object when the raw `points` field is absent", () => {
