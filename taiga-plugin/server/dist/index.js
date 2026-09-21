@@ -21893,6 +21893,10 @@ var SchemaCache = class {
       qualifier: row.email ? String(row.email) : void 0,
       username: row.username ? String(row.username) : void 0,
       role: row.role_name ? String(row.role_name) : void 0
+    })) : kind === "points" ? raw.map((row) => ({
+      id: row.id,
+      name: String(row.name),
+      value: row.value ?? null
     })) : raw.map((row) => ({ id: row.id, name: String(row.name) }));
     this.lookups.set(key, { at: Date.now(), entries });
     return entries;
@@ -21926,6 +21930,16 @@ var SchemaCache = class {
   async labelMap(projectId, kind) {
     const entries = await this.entries(projectId, kind);
     return new Map(entries.map((entry) => [entry.id, entry.name]));
+  }
+  /**
+   * Point id -> its numeric value (or null for an "unestimated" point like
+   * Taiga's own `?`), for building `points_by_role`. Built from the same
+   * cached `/points` entries `entries()` already fetches for `labelMap` and
+   * `resolveLookup` — no extra request when they're warm.
+   */
+  async valueMap(projectId) {
+    const entries = await this.entries(projectId, "points");
+    return new Map(entries.map((entry) => [entry.id, entry.value ?? null]));
   }
   async schema(projectId) {
     const project2 = await this.client.get(
@@ -22223,27 +22237,21 @@ var tags = makeGetter(
   (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : []
 );
 var plain = (key) => makeGetter([key], (raw) => raw[key] ?? null);
-var numberOrName = (name) => {
-  const trimmed = name.trim();
-  if (trimmed === "") return name;
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : name;
-};
-var UNESTIMATED_POINT = "?";
-var pointsByRole = makeGetter(["points"], (raw, labels) => {
+function pointsByRole(raw, labels) {
   const rawPoints = raw.points;
   const out = {};
   if (!rawPoints || !labels.role || !labels.points) return out;
   for (const [roleId, pointId] of Object.entries(rawPoints)) {
     if (typeof pointId !== "number") continue;
     const roleName = labels.role.get(Number(roleId));
-    const pointName = labels.points.get(pointId);
-    if (roleName === void 0 || pointName === void 0) continue;
-    if (pointName === UNESTIMATED_POINT) continue;
-    out[roleName] = numberOrName(pointName);
+    if (roleName === void 0) continue;
+    const value = labels.points.get(pointId);
+    if (value === void 0 || value === null) continue;
+    out[roleName] = value;
   }
   return out;
-});
+}
+var pointsByRoleGetter = makeGetter(["points"], pointsByRole);
 var SLIM = {
   userstory: {
     ref: plain("ref"),
@@ -22258,7 +22266,7 @@ var SLIM = {
     ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
-    points_by_role: pointsByRole,
+    points_by_role: pointsByRoleGetter,
     tags,
     is_blocked: plain("is_blocked"),
     is_closed: plain("is_closed"),
@@ -23043,15 +23051,18 @@ async function readLinks(ctx, projectId, resource, itemId, raw) {
   return result;
 }
 var USER_STORY_EXTRA_LABELS = [
-  { map: "role", kind: "role" },
-  { map: "points", kind: "points" }
+  { map: "role", kind: "role" }
 ];
 async function buildLabels(ctx, def, projectId) {
   const wanted = def.name === "userstory" ? [...def.labels ?? [], ...USER_STORY_EXTRA_LABELS] : def.labels ?? [];
   const resolved = await Promise.all(
     wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
   );
-  return Object.fromEntries(resolved);
+  const labels = Object.fromEntries(resolved);
+  if (def.name === "userstory") {
+    labels.points = await ctx.cache.valueMap(projectId);
+  }
+  return labels;
 }
 async function locate(ctx, def, projectId, args) {
   if (typeof args.id === "number") return args.id;

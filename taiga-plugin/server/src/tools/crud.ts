@@ -92,14 +92,15 @@ async function readLinks(
 }
 
 /**
- * A userstory's projection also needs the `role`/`points` maps to build
+ * A userstory's projection also needs the `role` id->name map to build
  * `points_by_role` (see projections.ts) — not declared on `USER_STORY.labels`
  * since that list is typed for the priority/severity/type/member fields
  * every other resource uses, so it's added here instead, for this resource only.
+ * The matching `points` id->value map comes from `valueMap`, not `labelMap`
+ * (points, unlike every other lookup, resolves to a number, not a name).
  */
 const USER_STORY_EXTRA_LABELS: { map: keyof LabelMaps; kind: LookupKind }[] = [
   { map: "role", kind: "role" },
-  { map: "points", kind: "points" },
 ];
 
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
@@ -115,7 +116,11 @@ async function buildLabels(
   const resolved = await Promise.all(
     wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
   );
-  return Object.fromEntries(resolved) as LabelMaps;
+  const labels = Object.fromEntries(resolved) as LabelMaps;
+  if (def.name === "userstory") {
+    labels.points = await ctx.cache.valueMap(projectId);
+  }
+  return labels;
 }
 
 /** Resolve the caller's `id` or `ref` into an internal object id. */

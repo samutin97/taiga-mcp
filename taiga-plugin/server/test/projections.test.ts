@@ -321,23 +321,34 @@ describe("projections", () => {
   });
 
   describe("points_by_role", () => {
+    // Real role/points scale, captured live from the mcp-sandbox stand
+    // (`GET /api/v1/roles?project=1`, `GET /api/v1/points?project=1`).
+    // `points` maps id -> the numeric `value` Taiga returns, not the name —
+    // the id->name map is only good for a display label, never for the
+    // number a model needs, and the stand's own half-point is spelled
+    // "1/2", not the "½" glyph an invented fixture might use.
     const roleLabels = new Map([
-      [1, "Front"],
-      [2, "Back"],
-      [3, "UX"],
+      [1, "UX"],
+      [2, "Design"],
+      [3, "Front"],
+      [4, "Back"],
     ]);
     const pointsLabels = new Map([
-      [9, "?"],
-      [10, "5"],
-      [11, "3"],
-      [12, "½"],
+      [1, null], // "?" — Taiga's own "not estimated" marker
+      [2, 0],
+      [3, 0.5], // "1/2"
+      [4, 1],
+      [5, 2],
+      [6, 3],
+      [7, 5],
+      [8, 8],
     ]);
 
-    it("builds a full role -> points map when every role has points", () => {
+    it("builds a full role -> value map when every role has points", () => {
       const rawStory = {
         ref: 3,
         subject: "Story",
-        points: { "1": 10, "2": 11, "3": 12 },
+        points: { "3": 7, "4": 6, "1": 3 },
         tags: [],
       };
 
@@ -346,34 +357,18 @@ describe("projections", () => {
         points: pointsLabels,
       });
 
-      expect(result.points_by_role).toEqual({ Front: 5, Back: 3, UX: "½" });
+      expect(result.points_by_role).toEqual({ Front: 5, Back: 3, UX: 0.5 });
     });
 
-    it("omits roles with no points assigned, rather than showing zero", () => {
-      const rawStory = {
-        ref: 3,
-        subject: "Story",
-        points: { "1": 10, "2": null, "3": 12 },
-        tags: [],
-      };
-
-      const result = project("userstory", rawStory, "slim", {
-        role: roleLabels,
-        points: pointsLabels,
-      });
-
-      expect(result.points_by_role).toEqual({ Front: 5, UX: "½" });
-      expect(result.points_by_role).not.toHaveProperty("Back");
-    });
-
-    it("omits a role left on Taiga's own «?» point — it means not estimated", () => {
+    it("omits a role whose point is Taiga's own «?» — value null means not estimated", () => {
       // Every Taiga project ships a `?` point and every role starts on it,
       // so a story estimated for Front alone arrives with all four roles
-      // filled in. Passing `?` through reported four estimated roles.
+      // filled in. Passing a null value through reported four estimated
+      // roles on a story that has one.
       const rawStory = {
         ref: 3,
         subject: "Story",
-        points: { "1": 10, "2": 9, "3": 9 },
+        points: { "3": 7, "4": 1, "1": 1 },
         tags: [],
       };
 
@@ -383,6 +378,44 @@ describe("projections", () => {
       });
 
       expect(result.points_by_role).toEqual({ Front: 5 });
+      expect(result.points_by_role).not.toHaveProperty("Back");
+      expect(result.points_by_role).not.toHaveProperty("UX");
+    });
+
+    it("resolves a fractional point to its numeric value, not its name", () => {
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "1": 3 }, // UX on "1/2"
+        tags: [],
+      };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({ UX: 0.5 });
+      expect(typeof (result.points_by_role as Record<string, unknown>).UX).toBe("number");
+    });
+
+    it("omits a role absent from the raw points map entirely", () => {
+      // "1": 4 -> only UX carries a point id; Design/Front/Back never appear
+      // as keys at all (as opposed to appearing with Taiga's "?" id).
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "1": 4 },
+        tags: [],
+      };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({ UX: 1 });
+      expect(Object.keys(result.points_by_role as Record<string, unknown>)).toEqual(["UX"]);
     });
 
     it("returns an empty object when the raw `points` field is absent", () => {
@@ -400,28 +433,11 @@ describe("projections", () => {
       const rawStory = {
         ref: 3,
         subject: "Story",
-        points: { "1": 10, "2": 11 },
+        points: { "1": 4, "3": 7 },
         tags: [],
       };
 
       expect(project("userstory", rawStory, "slim").points_by_role).toEqual({});
-    });
-
-    it("keeps a non-numeric point name as a string instead of coercing it", () => {
-      const rawStory = {
-        ref: 3,
-        subject: "Story",
-        points: { "3": 12 },
-        tags: [],
-      };
-
-      const result = project("userstory", rawStory, "slim", {
-        role: roleLabels,
-        points: pointsLabels,
-      });
-
-      expect(result.points_by_role).toEqual({ UX: "½" });
-      expect(typeof (result.points_by_role as Record<string, unknown>).UX).toBe("string");
     });
   });
 });

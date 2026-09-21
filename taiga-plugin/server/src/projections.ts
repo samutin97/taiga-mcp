@@ -25,7 +25,8 @@ export interface LabelMaps {
   type?: Map<number, string>;
   member?: Map<number, string>;
   role?: Map<number, string>;
-  points?: Map<number, string>;
+  /** Point id -> its numeric value (or null for an "unestimated" point like Taiga's own `?`). */
+  points?: Map<number, number | null>;
 }
 
 /**
@@ -85,41 +86,41 @@ const tags: Getter = makeGetter(["tags"], (raw) =>
 
 const plain = (key: string): Getter => makeGetter([key], (raw) => raw[key] ?? null);
 
-/** "5" -> 5, but "½" (not a number) is kept as-is; "" never becomes 0. */
-const numberOrName = (name: string): number | string => {
-  const trimmed = name.trim();
-  if (trimmed === "") return name;
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : name;
-};
-
 /**
  * Taiga's raw `points` is `{"<role id>": <point id>}`, useless to a model —
- * it names neither the role nor the point value. Resolves both through the
- * project's `role`/`points` lookup maps into `{"<role name>": <point value>}`.
- * A role with no point id (null) — or one whose point id the map can't
- * resolve — is left out entirely: absence isn't the same as zero. So is a
- * role sitting on Taiga's own "not estimated" point, named `?`: every
- * project starts with it, and every role a story never estimated points at
- * it, so passing it through would report four estimated roles on a story
- * that has one.
+ * it names neither the role nor carries the point's numeric value. Resolves
+ * both through the project's `role`/`points` (id -> value) lookup maps into
+ * `{"<role name>": <point value>}`.
+ *
+ * A role is left out entirely — absence isn't the same as zero — when: its
+ * id doesn't resolve to a name, its point id doesn't resolve to a value, or
+ * that value is `null`. `null` is Taiga's own "not estimated" marker (its
+ * `?` point always carries `value: null`): every project starts every role
+ * on it, and every role a story never estimated stays there, so passing it
+ * through would report four estimated roles on a story that has one.
+ *
+ * Exported so `taiga_<resource>_get`'s `fields: "full"` (crud.ts) can attach
+ * the same breakdown to the raw response instead of duplicating this logic.
  */
-const UNESTIMATED_POINT = "?";
-
-const pointsByRole: Getter = makeGetter(["points"], (raw, labels) => {
+export function pointsByRole(
+  raw: Record<string, unknown>,
+  labels: LabelMaps,
+): Record<string, number> {
   const rawPoints = raw.points as Record<string, unknown> | null | undefined;
-  const out: Record<string, number | string> = {};
+  const out: Record<string, number> = {};
   if (!rawPoints || !labels.role || !labels.points) return out;
   for (const [roleId, pointId] of Object.entries(rawPoints)) {
     if (typeof pointId !== "number") continue;
     const roleName = labels.role.get(Number(roleId));
-    const pointName = labels.points.get(pointId);
-    if (roleName === undefined || pointName === undefined) continue;
-    if (pointName === UNESTIMATED_POINT) continue;
-    out[roleName] = numberOrName(pointName);
+    if (roleName === undefined) continue;
+    const value = labels.points.get(pointId);
+    if (value === undefined || value === null) continue;
+    out[roleName] = value;
   }
   return out;
-});
+}
+
+const pointsByRoleGetter: Getter = makeGetter(["points"], pointsByRole);
 
 const SLIM: Record<ResourceName, Record<string, Getter>> = {
   userstory: {
@@ -134,7 +135,7 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
     ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
-    points_by_role: pointsByRole,
+    points_by_role: pointsByRoleGetter,
     tags,
     is_blocked: plain("is_blocked"),
     is_closed: plain("is_closed"),
