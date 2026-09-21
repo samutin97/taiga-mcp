@@ -47,7 +47,10 @@ const dueDateUpdate = z.string().optional().describe('ISO date; "" clears it.');
 const pointsField = z
   .union([z.string(), z.record(z.string())])
   .optional()
-  .describe('Points: "5" for the primary role, {"Front":"5","Back":"3"} per role.');
+  .describe(
+    'Points per role (preferred), e.g. {"Front":"5","Back":"3"}. A bare "5" goes to the ' +
+      "project's first role by order — Taiga has no single \"primary\" role.",
+  );
 
 export const USER_STORY: ResourceDef = {
   name: "userstory",
