@@ -4,9 +4,9 @@
       "name": "taiga_whoami",
       "description": "Show the authenticated Taiga user and the projects they can access. Use this to verify the connection and to discover project slugs.",
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "properties": {}
       },
       "annotations": {
         "readOnlyHint": true,
@@ -105,7 +105,7 @@
     },
     {
       "name": "taiga_project_schema",
-      "description": "List the valid statuses, priorities, severities, issue types, points, roles and members of a project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
+      "description": "List the valid statuses, priorities, severities, issue types, points, roles, members and custom fields of a project. Members include their username and role in the project. Use it to show the user what values are allowed; you do not need it before writing, because status and person names are resolved automatically.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -301,8 +301,18 @@
             "description": "Sprint (milestone) name."
           },
           "points": {
-            "type": "string",
-            "description": "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles are left unestimated."
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Points per role (preferred), e.g. {\"Front\":\"5\",\"Back\":\"3\"}. A bare \"5\" goes to the project's first role by order — Taiga has no single \"primary\" role."
           },
           "epic": {
             "type": "string",
@@ -375,8 +385,18 @@
             "description": "Sprint name; \"\" moves to backlog."
           },
           "points": {
-            "type": "string",
-            "description": "Story points value, e.g. '5'. Applied to the project's primary estimation role; other roles keep their current estimate."
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Points per role (preferred), e.g. {\"Front\":\"5\",\"Back\":\"3\"}. A bare \"5\" goes to the project's first role by order — Taiga has no single \"primary\" role."
           },
           "epic": {
             "type": "string",
@@ -647,6 +667,20 @@
           },
           "due_date": {
             "type": "string"
+          },
+          "estimate": {
+            "type": "number",
+            "description": "Estimate in points; written to the «Оценка» field."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "front",
+              "back",
+              "ux",
+              "design"
+            ],
+            "description": "Task's role; stored as a tag, replacing any previous role tag."
           }
         },
         "required": [
@@ -719,6 +753,20 @@
           },
           "blocked_note": {
             "type": "string"
+          },
+          "estimate": {
+            "type": "number",
+            "description": "Estimate in points; written to the «Оценка» field."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "front",
+              "back",
+              "ux",
+              "design"
+            ],
+            "description": "Task's role; stored as a tag, replacing any previous role tag."
           },
           "append_description": {
             "type": "string",
@@ -1391,57 +1439,6 @@
       }
     },
     {
-      "name": "taiga_link",
-      "description": "Связать две записи: blocks — первая блокирует вторую, relates — просто связаны; remove снимает связь.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": [
-              "string",
-              "number"
-            ],
-            "description": "Project id or slug."
-          },
-          "from": {
-            "type": "number",
-            "description": "#ref блокирующей (или первой) записи."
-          },
-          "to": {
-            "type": "number",
-            "description": "#ref заблокированной (или второй) записи."
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "blocks",
-              "relates"
-            ]
-          },
-          "remove": {
-            "type": "boolean",
-            "description": "Снять связь."
-          }
-        },
-        "required": [
-          "from",
-          "to",
-          "type"
-        ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "execution": {
-        "taskSupport": "forbidden"
-      }
-    },
-    {
       "name": "taiga_sprint_list",
       "description": "List sprint items in a Taiga project. Returns a slim projection by default. For name lookup use taiga_search.",
       "inputSchema": {
@@ -2019,7 +2016,7 @@
     },
     {
       "name": "taiga_search",
-      "description": "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list.",
+      "description": "Full-text search across a project's user stories, tasks, issues, epics and wiki pages. Use it when you know roughly what an item is called but not its #ref. For a full listing use taiga_<resource>_list. Returns only the fields Taiga actually sent back; use taiga_*_get for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2098,14 +2095,11 @@
       },
       "execution": {
         "taskSupport": "forbidden"
-      },
-      "_meta": {
-        "anthropic/requiresUserInteraction": true
       }
     },
     {
       "name": "taiga_stats",
-      "description": "Progress statistics. With `sprint` it returns that sprint's points, completed work and a day-by-day burndown series. Without it, project-wide totals and velocity.",
+      "description": "Progress statistics. With `sprint` it returns that sprint's points, completed work, a day-by-day burndown series and per-person load. Without it, project-wide totals and velocity.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2233,9 +2227,6 @@
       },
       "execution": {
         "taskSupport": "forbidden"
-      },
-      "_meta": {
-        "anthropic/requiresUserInteraction": true
       }
     },
     {
@@ -2273,6 +2264,57 @@
       },
       "annotations": {
         "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "taiga_link",
+      "description": "Link two records: blocks — the first blocks the second; relates — just related, and writes nothing if the project has no «Связано с» field. remove undoes the link.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "number"
+            ],
+            "description": "Project id or slug."
+          },
+          "from": {
+            "type": "number",
+            "description": "#ref of the blocking (or first) record."
+          },
+          "to": {
+            "type": "number",
+            "description": "#ref of the blocked (or second) record."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "blocks",
+              "relates"
+            ]
+          },
+          "remove": {
+            "type": "boolean",
+            "description": "Undo the link."
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "type"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
