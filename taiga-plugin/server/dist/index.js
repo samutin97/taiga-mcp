@@ -22436,7 +22436,9 @@ function registerProjectTools(server, ctx) {
 var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
 var assigneeUpdate = external_exports.string().optional().describe('Assignee full name; "" unassigns.');
 var dueDateUpdate = external_exports.string().optional().describe('ISO date; "" clears it.');
-var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe('Points: "5" for the primary role, {"Front":"5","Back":"3"} per role.');
+var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe(
+  `Points per role (preferred), e.g. {"Front":"5","Back":"3"}. A bare "5" goes to the project's first role by order \u2014 Taiga has no single "primary" role.`
+);
 var USER_STORY = {
   name: "userstory",
   path: "/userstories",
@@ -23055,12 +23057,15 @@ var USER_STORY_EXTRA_LABELS = [
 ];
 async function buildLabels(ctx, def, projectId) {
   const wanted = def.name === "userstory" ? [...def.labels ?? [], ...USER_STORY_EXTRA_LABELS] : def.labels ?? [];
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
-  );
+  const [resolved, points] = await Promise.all([
+    Promise.all(
+      wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
+    ),
+    def.name === "userstory" ? ctx.cache.valueMap(projectId) : Promise.resolve(void 0)
+  ]);
   const labels = Object.fromEntries(resolved);
-  if (def.name === "userstory") {
-    labels.points = await ctx.cache.valueMap(projectId);
+  if (points !== void 0) {
+    labels.points = points;
   }
   return labels;
 }
@@ -23554,13 +23559,6 @@ var SINGLE_RESOURCE_FIELDS = {
   role: "tasks",
   estimate: "tasks"
 };
-async function buildLabels2(ctx, def, projectId) {
-  const wanted = def.labels ?? [];
-  const resolved = await Promise.all(
-    wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
-  );
-  return Object.fromEntries(resolved);
-}
 function registerBulkTool(server, ctx) {
   defineTool(
     server,
@@ -23587,7 +23585,7 @@ function registerBulkTool(server, ctx) {
       }
       const def = BULK_RESOURCES[a.resource];
       const projectId = await ctx.cache.resolveProject(a.project);
-      const labels = await buildLabels2(ctx, def, projectId);
+      const labels = await buildLabels(ctx, def, projectId);
       const epicResolutions = /* @__PURE__ */ new Map();
       if (def.name === "userstory") {
         const names = new Set(
