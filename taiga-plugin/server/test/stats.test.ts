@@ -148,7 +148,9 @@ describe("taiga_stats: sprint load", () => {
     const { json } = await callHandler(handlerFor("taiga_stats"), { sprint: "Sprint Fixture" });
 
     expect(json.load).toEqual([]);
-    expect(json.load_note).toBe("Оценок задач в проекте нет: заведите поле «Оценка» у задач.");
+    expect(json.load_note).toBe(
+      "Загрузка по задачам недоступна: у задач нет поля «Оценка». Считайте по поинтам историй — taiga_userstory_list со sprint отдаёт points и points_by_role.",
+    );
     expect(ctx.client.list).not.toHaveBeenCalledWith("/tasks", expect.anything());
   });
 

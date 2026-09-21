@@ -24,6 +24,8 @@ export interface LabelMaps {
   severity?: Map<number, string>;
   type?: Map<number, string>;
   member?: Map<number, string>;
+  role?: Map<number, string>;
+  points?: Map<number, string>;
 }
 
 /**
@@ -83,6 +85,35 @@ const tags: Getter = makeGetter(["tags"], (raw) =>
 
 const plain = (key: string): Getter => makeGetter([key], (raw) => raw[key] ?? null);
 
+/** "5" -> 5, but "½" (not a number) is kept as-is; "" never becomes 0. */
+const numberOrName = (name: string): number | string => {
+  const trimmed = name.trim();
+  if (trimmed === "") return name;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : name;
+};
+
+/**
+ * Taiga's raw `points` is `{"<role id>": <point id>}`, useless to a model —
+ * it names neither the role nor the point value. Resolves both through the
+ * project's `role`/`points` lookup maps into `{"<role name>": <point value>}`.
+ * A role with no point id (null) — or one whose point id the map can't
+ * resolve — is left out entirely: absence isn't the same as zero.
+ */
+const pointsByRole: Getter = makeGetter(["points"], (raw, labels) => {
+  const rawPoints = raw.points as Record<string, unknown> | null | undefined;
+  const out: Record<string, number | string> = {};
+  if (!rawPoints || !labels.role || !labels.points) return out;
+  for (const [roleId, pointId] of Object.entries(rawPoints)) {
+    if (typeof pointId !== "number") continue;
+    const roleName = labels.role.get(Number(roleId));
+    const pointName = labels.points.get(pointId);
+    if (roleName === undefined || pointName === undefined) continue;
+    out[roleName] = numberOrName(pointName);
+  }
+  return out;
+});
+
 const SLIM: Record<ResourceName, Record<string, Getter>> = {
   userstory: {
     ref: plain("ref"),
@@ -96,6 +127,7 @@ const SLIM: Record<ResourceName, Record<string, Getter>> = {
     ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
+    points_by_role: pointsByRole,
     tags,
     is_blocked: plain("is_blocked"),
     is_closed: plain("is_closed"),

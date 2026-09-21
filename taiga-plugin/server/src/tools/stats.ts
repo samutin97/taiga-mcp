@@ -23,7 +23,8 @@ const CAPACITY_PER_SPRINT = 40;
 /** Bucket label for tasks nobody is assigned to — never merged into a person's load. */
 const UNASSIGNED_LABEL = "Без исполнителя";
 
-const NO_ESTIMATE_ATTRIBUTE_NOTE = "Оценок задач в проекте нет: заведите поле «Оценка» у задач.";
+const NO_ESTIMATE_ATTRIBUTE_NOTE =
+  "Загрузка по задачам недоступна: у задач нет поля «Оценка». Считайте по поинтам историй — taiga_userstory_list со sprint отдаёт points и points_by_role.";
 
 interface LoadRow {
   member: string;

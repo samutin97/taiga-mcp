@@ -4,6 +4,7 @@ import { type ToolContext, ok, guard, FIELDS_SCHEMA, PROJECT_SCHEMA, asFieldMode
 import { project, projectMany, type LabelMaps } from "../projections.js";
 import { TaigaError } from "../errors.js";
 import type { ResourceDef } from "../resources.js";
+import type { LookupKind } from "../schema-cache.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
 import {
@@ -90,13 +91,27 @@ async function readLinks(
   return result;
 }
 
+/**
+ * A userstory's projection also needs the `role`/`points` maps to build
+ * `points_by_role` (see projections.ts) — not declared on `USER_STORY.labels`
+ * since that list is typed for the priority/severity/type/member fields
+ * every other resource uses, so it's added here instead, for this resource only.
+ */
+const USER_STORY_EXTRA_LABELS: { map: keyof LabelMaps; kind: LookupKind }[] = [
+  { map: "role", kind: "role" },
+  { map: "points", kind: "points" },
+];
+
 /** Build the id→name maps this resource's projection needs. Empty for most resources. */
 async function buildLabels(
   ctx: ToolContext,
   def: ResourceDef,
   projectId: number,
 ): Promise<LabelMaps> {
-  const wanted = def.labels ?? [];
+  const wanted: { map: keyof LabelMaps; kind: LookupKind }[] =
+    def.name === "userstory"
+      ? [...(def.labels ?? []), ...USER_STORY_EXTRA_LABELS]
+      : (def.labels ?? []);
   const resolved = await Promise.all(
     wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)] as const),
   );

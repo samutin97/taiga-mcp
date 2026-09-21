@@ -22223,6 +22223,25 @@ var tags = makeGetter(
   (raw) => Array.isArray(raw.tags) ? raw.tags.map((tag) => Array.isArray(tag) ? tag[0] : tag) : []
 );
 var plain = (key) => makeGetter([key], (raw) => raw[key] ?? null);
+var numberOrName = (name) => {
+  const trimmed = name.trim();
+  if (trimmed === "") return name;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : name;
+};
+var pointsByRole = makeGetter(["points"], (raw, labels) => {
+  const rawPoints = raw.points;
+  const out = {};
+  if (!rawPoints || !labels.role || !labels.points) return out;
+  for (const [roleId, pointId] of Object.entries(rawPoints)) {
+    if (typeof pointId !== "number") continue;
+    const roleName = labels.role.get(Number(roleId));
+    const pointName = labels.points.get(pointId);
+    if (roleName === void 0 || pointName === void 0) continue;
+    out[roleName] = numberOrName(pointName);
+  }
+  return out;
+});
 var SLIM = {
   userstory: {
     ref: plain("ref"),
@@ -22237,6 +22256,7 @@ var SLIM = {
     ),
     sprint: plain("milestone_name"),
     points: plain("total_points"),
+    points_by_role: pointsByRole,
     tags,
     is_blocked: plain("is_blocked"),
     is_closed: plain("is_closed"),
@@ -23020,8 +23040,12 @@ async function readLinks(ctx, projectId, resource, itemId, raw) {
   }
   return result;
 }
+var USER_STORY_EXTRA_LABELS = [
+  { map: "role", kind: "role" },
+  { map: "points", kind: "points" }
+];
 async function buildLabels(ctx, def, projectId) {
-  const wanted = def.labels ?? [];
+  const wanted = def.name === "userstory" ? [...def.labels ?? [], ...USER_STORY_EXTRA_LABELS] : def.labels ?? [];
   const resolved = await Promise.all(
     wanted.map(async ({ map, kind }) => [map, await ctx.cache.labelMap(projectId, kind)])
   );
@@ -23679,7 +23703,7 @@ function registerBulkTool(server, ctx) {
 // src/tools/stats.ts
 var CAPACITY_PER_SPRINT = 40;
 var UNASSIGNED_LABEL = "\u0411\u0435\u0437 \u0438\u0441\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044F";
-var NO_ESTIMATE_ATTRIBUTE_NOTE = "\u041E\u0446\u0435\u043D\u043E\u043A \u0437\u0430\u0434\u0430\u0447 \u0432 \u043F\u0440\u043E\u0435\u043A\u0442\u0435 \u043D\u0435\u0442: \u0437\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043F\u043E\u043B\u0435 \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB \u0443 \u0437\u0430\u0434\u0430\u0447.";
+var NO_ESTIMATE_ATTRIBUTE_NOTE = "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u043F\u043E \u0437\u0430\u0434\u0430\u0447\u0430\u043C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430: \u0443 \u0437\u0430\u0434\u0430\u0447 \u043D\u0435\u0442 \u043F\u043E\u043B\u044F \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB. \u0421\u0447\u0438\u0442\u0430\u0439\u0442\u0435 \u043F\u043E \u043F\u043E\u0438\u043D\u0442\u0430\u043C \u0438\u0441\u0442\u043E\u0440\u0438\u0439 \u2014 taiga_userstory_list \u0441\u043E sprint \u043E\u0442\u0434\u0430\u0451\u0442 points \u0438 points_by_role.";
 async function sprintLoad(ctx, projectId, milestoneId) {
   const attrIds = await attributeIds(ctx, projectId, "task");
   const estimateAttrId = attrIds.get("\u041E\u0446\u0435\u043D\u043A\u0430");

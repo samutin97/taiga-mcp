@@ -40,6 +40,7 @@ describe("projections", () => {
       assigned_users: [],
       sprint: "Sprint 1",
       points: 5,
+      points_by_role: {},
       tags: ["auth", "mcp"],
       is_blocked: false,
       is_closed: false,
@@ -144,11 +145,13 @@ describe("projections", () => {
     expect(result.tags).toEqual([]);
   });
 
-  it("shrinks a list by at least 85 percent", () => {
+  it("shrinks a list by at least 80 percent", () => {
     const rows = Array.from({ length: 9 }, () => realStory);
     const rawSize = JSON.stringify(rows).length;
+    // 0.15 -> 0.18: `points_by_role` (empty here since no labels are passed)
+    // still adds a key to every row.
     const slimSize = JSON.stringify(projectMany("userstory", rows)).length;
-    expect(slimSize).toBeLessThan(rawSize * 0.15);
+    expect(slimSize).toBeLessThan(rawSize * 0.18);
   });
 
   it("projects a real Taiga story to the slim key set", () => {
@@ -160,6 +163,7 @@ describe("projections", () => {
         "is_blocked",
         "is_closed",
         "points",
+        "points_by_role",
         "ref",
         "sprint",
         "status",
@@ -314,5 +318,90 @@ describe("projections", () => {
 
     const result = project("issue", rawIssue, "slim");
     expect(result.priority).toBeNull();
+  });
+
+  describe("points_by_role", () => {
+    const roleLabels = new Map([
+      [1, "Front"],
+      [2, "Back"],
+      [3, "UX"],
+    ]);
+    const pointsLabels = new Map([
+      [10, "5"],
+      [11, "3"],
+      [12, "½"],
+    ]);
+
+    it("builds a full role -> points map when every role has points", () => {
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "1": 10, "2": 11, "3": 12 },
+        tags: [],
+      };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({ Front: 5, Back: 3, UX: "½" });
+    });
+
+    it("omits roles with no points assigned, rather than showing zero", () => {
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "1": 10, "2": null, "3": 12 },
+        tags: [],
+      };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({ Front: 5, UX: "½" });
+      expect(result.points_by_role).not.toHaveProperty("Back");
+    });
+
+    it("returns an empty object when the raw `points` field is absent", () => {
+      const rawStory = { ref: 3, subject: "Story", tags: [] };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({});
+    });
+
+    it("returns an empty object when the role/points label maps are not supplied", () => {
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "1": 10, "2": 11 },
+        tags: [],
+      };
+
+      expect(project("userstory", rawStory, "slim").points_by_role).toEqual({});
+    });
+
+    it("keeps a non-numeric point name as a string instead of coercing it", () => {
+      const rawStory = {
+        ref: 3,
+        subject: "Story",
+        points: { "3": 12 },
+        tags: [],
+      };
+
+      const result = project("userstory", rawStory, "slim", {
+        role: roleLabels,
+        points: pointsLabels,
+      });
+
+      expect(result.points_by_role).toEqual({ UX: "½" });
+      expect(typeof (result.points_by_role as Record<string, unknown>).UX).toBe("string");
+    });
   });
 });

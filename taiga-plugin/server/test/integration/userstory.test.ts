@@ -49,8 +49,8 @@ describe("user story CRUD", () => {
     const first = json.items[0];
     expect(Object.keys(first).sort()).toEqual(
       [
-        "assigned_to", "assigned_users", "is_blocked", "is_closed", "points", "ref",
-        "sprint", "status", "subject", "tags", "total_comments",
+        "assigned_to", "assigned_users", "is_blocked", "is_closed", "points", "points_by_role",
+        "ref", "sprint", "status", "subject", "tags", "total_comments",
       ].sort(),
     );
   });
@@ -59,8 +59,11 @@ describe("user story CRUD", () => {
     // The spec (§7) targets 500 tokens for this listing. The shipped
     // assertion was 800 only to accommodate pretty-printing the response
     // with an indent, which cost 44% of every payload the plugin returns.
+    // Raised to 700 once `points_by_role` (a per-role breakdown the model
+    // needs now that estimates live only on the story, not on tasks) joined
+    // every item — a deliberate, requested cost, not drift.
     const { raw } = await call("taiga_userstory_list", { limit: 9 });
-    expect(raw.length / 4).toBeLessThan(500);
+    expect(raw.length / 4).toBeLessThan(700);
   });
 
   it("filters by status name", async () => {
