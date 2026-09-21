@@ -59,11 +59,16 @@ describe("user story CRUD", () => {
     // The spec (§7) targets 500 tokens for this listing. The shipped
     // assertion was 800 only to accommodate pretty-printing the response
     // with an indent, which cost 44% of every payload the plugin returns.
-    // Raised to 700 once `points_by_role` (a per-role breakdown the model
-    // needs now that estimates live only on the story, not on tasks) joined
-    // every item — a deliberate, requested cost, not drift.
+    // `points_by_role` (a per-role breakdown the model needs now that
+    // estimates live only on the story, not on tasks) is a real, deliberate
+    // cost, not drift — measured live on this stand's nine stories at
+    // 497.5 -> 556.3 "tokens" (raw.length / 4), +11.8%. The old 500 number
+    // was honest about the field's cost only by accident: it was already
+    // running at 99.5% of its own budget before `points_by_role` existed, so
+    // one longer subject line would have broken it regardless. 600 gives the
+    // field's real cost some headroom instead of doubling it away.
     const { raw } = await call("taiga_userstory_list", { limit: 9 });
-    expect(raw.length / 4).toBeLessThan(700);
+    expect(raw.length / 4).toBeLessThan(600);
   });
 
   it("filters by status name", async () => {

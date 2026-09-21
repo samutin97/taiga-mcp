@@ -145,13 +145,31 @@ describe("projections", () => {
     expect(result.tags).toEqual([]);
   });
 
-  it("shrinks a list by at least 80 percent", () => {
+  it("shrinks a list by at least 83 percent with an empty points_by_role", () => {
     const rows = Array.from({ length: 9 }, () => realStory);
     const rawSize = JSON.stringify(rows).length;
-    // 0.15 -> 0.18: `points_by_role` (empty here since no labels are passed)
-    // still adds a key to every row.
+    // Measured live, not guessed: `points_by_role` cost this test's honesty
+    // once already. It went from an untouched 85.1% reduction (ratio 0.149)
+    // to 83.9% (ratio 0.1613) once the field's `{}` (empty here — no label
+    // maps are passed to this call) joined every row, but the threshold was
+    // loosened to 0.18 (an 80% floor) — twice the field's real cost. Set
+    // back to 0.17 (83%), the tightest bound the measured 0.1613 clears.
     const slimSize = JSON.stringify(projectMany("userstory", rows)).length;
-    expect(slimSize).toBeLessThan(rawSize * 0.18);
+    expect(slimSize).toBeLessThan(rawSize * 0.17);
+  });
+
+  it("shrinks a list by at least 83 percent with points_by_role populated", () => {
+    // Same shrink guarantee, but with `points_by_role` actually filled in —
+    // the case the label-less test above can't cover, since without `role`/
+    // `points` maps the field is always `{}`.
+    const rows = Array.from({ length: 9 }, () => realStory);
+    const rawSize = JSON.stringify(rows).length;
+    const labels = {
+      role: new Map([[1, "UX"], [2, "Design"], [3, "Front"], [4, "Back"]]),
+      points: new Map([[1, null], [7, 5]]), // matches realStory's points: {"1": 7, "2": 1, "3": 1, "4": 1}
+    };
+    const slimSize = JSON.stringify(projectMany("userstory", rows, "slim", labels)).length;
+    expect(slimSize).toBeLessThan(rawSize * 0.17);
   });
 
   it("projects a real Taiga story to the slim key set", () => {
