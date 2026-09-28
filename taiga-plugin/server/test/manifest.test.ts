@@ -8,10 +8,10 @@ const MARKET = join(import.meta.dirname, "../../../.claude-plugin/marketplace.js
 describe("plugin manifest", () => {
   const manifest = JSON.parse(readFileSync(PLUGIN, "utf8"));
 
-  it("declares schema, author and version 0.3.0", () => {
+  it("declares schema, author and version 0.4.0", () => {
     expect(manifest.$schema).toMatch(/plugin-manifest\.json$/);
     expect(manifest.author.name).toBeTruthy();
-    expect(manifest.version).toBe("0.3.0");
+    expect(manifest.version).toBe("0.4.0");
   });
 
   it("asks for the four settings and marks the password sensitive", () => {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "taiga",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Taiga из Claude Code: спринты, бэклог, issue, отчёты — от вашего имени",
   "author": { "name": "Dmitry Samutin", "email": "dmitriy.samutin@gmail.com" },
   "keywords": ["taiga", "project-management", "agile", "scrum"],

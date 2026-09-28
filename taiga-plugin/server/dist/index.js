@@ -22436,6 +22436,12 @@ function registerProjectTools(server, ctx) {
 var tagsField = external_exports.array(external_exports.string()).optional().describe("Tag names.");
 var assigneeUpdate = external_exports.string().optional().describe('Assignee full name; "" unassigns.');
 var dueDateUpdate = external_exports.string().optional().describe('ISO date; "" clears it.');
+var sprintField = external_exports.string().optional().describe("Sprint name.");
+var sprintUpdate = external_exports.string().optional().describe('Sprint name; "" clears it.');
+var requirementFields = {
+  client_requirement: external_exports.boolean().optional(),
+  team_requirement: external_exports.boolean().optional()
+};
 var pointsField = external_exports.union([external_exports.string(), external_exports.record(external_exports.string())]).optional().describe(
   `Points per role (preferred), e.g. {"Front":"5","Back":"3"}. A bare "5" goes to the project's first role by order \u2014 Taiga has no single "primary" role.`
 );
@@ -22465,7 +22471,8 @@ var USER_STORY = {
     points: pointsField,
     epic: external_exports.string().optional().describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
-    due_date: external_exports.string().optional().describe("ISO date, e.g. 2026-09-30.")
+    due_date: external_exports.string().optional().describe("ISO date, e.g. 2026-09-30."),
+    ...requirementFields
   },
   updateFields: {
     subject: external_exports.string().optional(),
@@ -22480,7 +22487,8 @@ var USER_STORY = {
     is_blocked: external_exports.boolean().optional(),
     blocked_note: external_exports.string().optional(),
     backlog_order: external_exports.number().optional().describe("Position in the backlog; lower comes first."),
-    assigned_users: external_exports.array(external_exports.string()).optional().describe("Full names of everyone assigned; replaces the list, [] clears it.")
+    assigned_users: external_exports.array(external_exports.string()).optional().describe("Full names of everyone assigned; replaces the list, [] clears it."),
+    ...requirementFields
   },
   lookups: [
     { field: "status", kind: "userstory-status" },
@@ -22510,6 +22518,7 @@ var TASK = {
     user_story: external_exports.number().optional().describe("Parent story #ref."),
     status: external_exports.string().optional(),
     assigned_to: external_exports.string().optional(),
+    sprint: sprintField,
     tags: tagsField,
     due_date: external_exports.string().optional(),
     estimate: external_exports.number().optional().describe("Estimate in points; written to the \xAB\u041E\u0446\u0435\u043D\u043A\u0430\xBB field."),
@@ -22521,6 +22530,7 @@ var TASK = {
     user_story: external_exports.number().optional().describe("Parent story #ref."),
     status: external_exports.string().optional(),
     assigned_to: assigneeUpdate,
+    sprint: sprintUpdate,
     tags: tagsField,
     due_date: dueDateUpdate,
     is_blocked: external_exports.boolean().optional(),
@@ -22557,6 +22567,7 @@ var ISSUE = {
     severity: external_exports.string().optional(),
     type: external_exports.string().optional(),
     assigned_to: external_exports.string().optional(),
+    sprint: sprintField,
     tags: tagsField,
     due_date: external_exports.string().optional()
   },
@@ -22568,6 +22579,7 @@ var ISSUE = {
     severity: external_exports.string().optional(),
     type: external_exports.string().optional(),
     assigned_to: assigneeUpdate,
+    sprint: sprintUpdate,
     tags: tagsField,
     due_date: dueDateUpdate
   },
@@ -22603,7 +22615,8 @@ var EPIC = {
     color: external_exports.string().optional().describe("Hex colour, e.g. #B22222."),
     status: external_exports.string().optional(),
     assigned_to: external_exports.string().optional(),
-    tags: tagsField
+    tags: tagsField,
+    ...requirementFields
   },
   updateFields: {
     subject: external_exports.string().optional(),
@@ -22611,7 +22624,8 @@ var EPIC = {
     color: external_exports.string().optional(),
     status: external_exports.string().optional(),
     assigned_to: assigneeUpdate,
-    tags: tagsField
+    tags: tagsField,
+    ...requirementFields
   },
   lookups: [
     { field: "status", kind: "epic-status" },
@@ -23032,6 +23046,11 @@ function registerLinkTool(server, ctx) {
 function isLinkable(name) {
   return name === "userstory" || name === "task";
 }
+var SPRINT_FOLLOWS_STORY_HINT = "\u0421\u043F\u0440\u0438\u043D\u0442 \u043D\u0435 \u0441\u043C\u0435\u043D\u0438\u043B\u0441\u044F: \u0443 \u0437\u0430\u0434\u0430\u0447\u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0438 Taiga \u0432\u0441\u0435\u0433\u0434\u0430 \u0441\u0442\u0430\u0432\u0438\u0442 \u0441\u043F\u0440\u0438\u043D\u0442 \u0441\u0430\u043C\u043E\u0439 \u0438\u0441\u0442\u043E\u0440\u0438\u0438. \u0427\u0442\u043E\u0431\u044B \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0442\u0438 \u0437\u0430\u0434\u0430\u0447\u0443, \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0438\u0442\u0435 \u0438\u0441\u0442\u043E\u0440\u0438\u044E \u0447\u0435\u0440\u0435\u0437 taiga_userstory_update.";
+function sprintOverrideHint(def, requested, row) {
+  const overridden = def.name === "task" && requested !== void 0 && typeof row.user_story === "number" && (row.milestone ?? null) !== requested;
+  return overridden ? SPRINT_FOLLOWS_STORY_HINT : void 0;
+}
 function parseEstimate(raw) {
   if (raw === void 0 || raw === null) return null;
   const value = typeof raw === "number" ? raw : Number(raw);
@@ -23285,6 +23304,8 @@ function registerCrudTools(server, ctx, def) {
         shaped.description = created.description ?? payload.description;
       }
       if (storyPoints) shaped.story_points = storyPoints;
+      const sprintHint = sprintOverrideHint(def, payload.milestone, created);
+      if (sprintHint) shaped.hint = sprintHint;
       return ok(shaped);
     })
   );
@@ -23443,7 +23464,10 @@ ${appendText}` : appendText;
       const labels = await buildLabels(ctx, def, projectId);
       const shaped = project(def.name, updated, "slim", labels);
       if (storyPoints) shaped.story_points = storyPoints;
-      if (blockHint) shaped.hint = blockHint;
+      const hints = [blockHint, sprintOverrideHint(def, changes.milestone, updated)].filter(
+        (hint) => hint !== void 0
+      );
+      if (hints.length > 0) shaped.hint = hints.join(" ");
       return ok(shaped);
     })
   );
@@ -23554,7 +23578,6 @@ var BULK_RESOURCES = {
   issue: ISSUE
 };
 var SINGLE_RESOURCE_FIELDS = {
-  sprint: "user stories",
   points: "user stories",
   role: "tasks",
   estimate: "tasks"
@@ -23694,7 +23717,10 @@ function registerBulkTool(server, ctx) {
               ref: storyExtra?.ref ?? null
             });
           }
-          created.push(project(def.name, row, "slim", labels));
+          const shaped = project(def.name, row, "slim", labels);
+          const sprintHint = sprintOverrideHint(def, payload.milestone, row);
+          if (sprintHint) shaped.hint = sprintHint;
+          created.push(shaped);
         } catch (error2) {
           failed.push({
             item,

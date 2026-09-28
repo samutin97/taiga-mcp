@@ -328,6 +328,12 @@
           "due_date": {
             "type": "string",
             "description": "ISO date, e.g. 2026-09-30."
+          },
+          "client_requirement": {
+            "type": "boolean"
+          },
+          "team_requirement": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -429,6 +435,12 @@
               "type": "string"
             },
             "description": "Full names of everyone assigned; replaces the list, [] clears it."
+          },
+          "client_requirement": {
+            "type": "boolean"
+          },
+          "team_requirement": {
+            "type": "boolean"
           },
           "append_description": {
             "type": "string",
@@ -658,6 +670,10 @@
           "assigned_to": {
             "type": "string"
           },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint name."
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -736,6 +752,10 @@
           "assigned_to": {
             "type": "string",
             "description": "Assignee full name; \"\" unassigns."
+          },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint name; \"\" clears it."
           },
           "tags": {
             "type": "array",
@@ -1005,6 +1025,10 @@
           "assigned_to": {
             "type": "string"
           },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint name."
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -1074,6 +1098,10 @@
           "assigned_to": {
             "type": "string",
             "description": "Assignee full name; \"\" unassigns."
+          },
+          "sprint": {
+            "type": "string",
+            "description": "Sprint name; \"\" clears it."
           },
           "tags": {
             "type": "array",
@@ -1309,6 +1337,12 @@
               "type": "string"
             },
             "description": "Tag names."
+          },
+          "client_requirement": {
+            "type": "boolean"
+          },
+          "team_requirement": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -1370,6 +1404,12 @@
               "type": "string"
             },
             "description": "Tag names."
+          },
+          "client_requirement": {
+            "type": "boolean"
+          },
+          "team_requirement": {
+            "type": "boolean"
           },
           "append_description": {
             "type": "string",

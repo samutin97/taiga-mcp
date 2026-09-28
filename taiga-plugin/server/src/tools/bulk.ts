@@ -4,7 +4,7 @@ import { type ToolContext, ok, guard, PROJECT_SCHEMA } from "../context.js";
 import { TaigaError } from "../errors.js";
 import { project } from "../projections.js";
 import { USER_STORY, TASK, ISSUE, type ResourceDef } from "../resources.js";
-import { resolveEpic, linkStoryToEpic, resolveSprint, buildLabels } from "./crud.js";
+import { resolveEpic, linkStoryToEpic, resolveSprint, buildLabels, sprintOverrideHint } from "./crud.js";
 import { defineTool } from "../registry.js";
 import { pointsPayload } from "../points.js";
 import { createWithRoleEstimate, recalcStoryPoints, ROLE_TAGS, type RoleTag } from "../role-points.js";
@@ -17,9 +17,11 @@ const BULK_RESOURCES: Record<string, ResourceDef> = {
   issue: ISSUE,
 };
 
-/** Fields limited to one resource kind; naming them on the wrong kind is an error, not a silent drop. */
+/**
+ * Fields limited to one resource kind; naming them on the wrong kind is an error, not a silent drop.
+ * `sprint` is not here: every bulk resource takes it, resolved to `milestone` below.
+ */
 const SINGLE_RESOURCE_FIELDS: Record<string, string> = {
-  sprint: "user stories",
   points: "user stories",
   role: "tasks",
   estimate: "tasks",
@@ -122,15 +124,16 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
             );
           }
 
-          // `sprint`/`points` (user stories) and `role`/`estimate` (tasks)
-          // need the same resolution the matching single-create tool gives
-          // them, and each is only defined in that one resource's
-          // createFields. Sent raw, `points` is an opaque HTTP 500 from
-          // Taiga (it stores points as a per-role map) and `sprint` is an
-          // unknown field on the serializer: silently dropped, with the item
-          // still reported in `created` — the same silent-success failure
-          // the `epic` guards above exist to stop. `role`/`estimate` on a
-          // user story or issue would be dropped the same way if let through.
+          // `points` (user stories) and `role`/`estimate` (tasks) need the
+          // same resolution the matching single-create tool gives them, and
+          // each is only defined in that one resource's createFields. Sent
+          // raw, `points` is an opaque HTTP 500 from Taiga (it stores points
+          // as a per-role map): the same kind of failure the `epic` guards
+          // above exist to stop. `role`/`estimate` on a user story or issue
+          // would be silently dropped if let through, with the item still
+          // reported in `created`. (`sprint`, sent raw, would be an unknown
+          // field on the serializer, dropped the same way — it is resolved
+          // to `milestone` below for every resource instead.)
           for (const [field, appliesTo] of Object.entries(SINGLE_RESOURCE_FIELDS)) {
             if (item[field] !== undefined && def.createFields[field] === undefined) {
               throw new TaigaError(
@@ -228,7 +231,10 @@ export function registerBulkTool(server: McpServer, ctx: ToolContext): void {
               ref: storyExtra?.ref ?? null,
             });
           }
-          created.push(project(def.name, row, "slim", labels));
+          const shaped = project(def.name, row, "slim", labels);
+          const sprintHint = sprintOverrideHint(def, payload.milestone, row);
+          if (sprintHint) shaped.hint = sprintHint;
+          created.push(shaped);
         } catch (error) {
           failed.push({
             item,

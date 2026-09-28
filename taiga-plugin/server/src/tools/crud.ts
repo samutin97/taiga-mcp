@@ -28,6 +28,32 @@ function isLinkable(name: ResourceDef["name"]): name is AttrResource {
   return name === "userstory" || name === "task";
 }
 
+const SPRINT_FOLLOWS_STORY_HINT =
+  "Спринт не сменился: у задачи истории Taiga всегда ставит спринт самой истории. " +
+  "Чтобы перенести задачу, перенесите историю через taiga_userstory_update.";
+
+/**
+ * Taiga's TaskViewSet.pre_save copies the story's milestone onto a task
+ * that has one, on create and on update alike, and drops whatever milestone
+ * was sent — no error, the write just "succeeds". The same copy is why a
+ * task created with only `user_story` needs no sprint from us: it lands in
+ * the story's sprint by itself. Compare what was asked with what came back
+ * and say so instead of letting a sprint that never applied pass silently.
+ * Exported so `taiga_bulk_create` flags its task items the same way.
+ */
+export function sprintOverrideHint(
+  def: ResourceDef,
+  requested: unknown,
+  row: Record<string, unknown>,
+): string | undefined {
+  const overridden =
+    def.name === "task" &&
+    requested !== undefined &&
+    typeof row.user_story === "number" &&
+    (row.milestone ?? null) !== requested;
+  return overridden ? SPRINT_FOLLOWS_STORY_HINT : undefined;
+}
+
 /**
  * Coerce a raw «Оценка» attribute value the same way role-points.ts and
  * stats.ts already do: Taiga's custom fields aren't type-checked server
@@ -466,6 +492,8 @@ export function registerCrudTools(
         shaped.description = created.description ?? payload.description;
       }
       if (storyPoints) shaped.story_points = storyPoints;
+      const sprintHint = sprintOverrideHint(def, payload.milestone, created);
+      if (sprintHint) shaped.hint = sprintHint;
       return ok(shaped);
     }),
   );
@@ -525,7 +553,7 @@ export function registerCrudTools(
       if (typeof changes.user_story === "number") {
         changes.user_story = await ctx.cache.resolveRef(projectId, "us", changes.user_story as number);
       }
-      // "" moves the story back to the backlog, mirroring `epic: ""`.
+      // "" clears the sprint (for a story: back to the backlog), mirroring `epic: ""`.
       if (sprint !== undefined) {
         changes.milestone = sprint === "" ? null : await resolveSprint(ctx, projectId, sprint);
       }
@@ -705,7 +733,10 @@ export function registerCrudTools(
       const labels = await buildLabels(ctx, def, projectId);
       const shaped = project(def.name, updated, "slim", labels);
       if (storyPoints) shaped.story_points = storyPoints;
-      if (blockHint) shaped.hint = blockHint;
+      const hints = [blockHint, sprintOverrideHint(def, changes.milestone, updated)].filter(
+        (hint) => hint !== undefined,
+      );
+      if (hints.length > 0) shaped.hint = hints.join(" ");
       return ok(shaped);
     }),
   );

@@ -7,7 +7,7 @@
       "name": "taiga",
       "source": "./taiga-plugin",
       "description": "Taiga из Claude Code: спринты, бэклог, issue, отчёты — от вашего имени",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "author": { "name": "Dmitry Samutin" },
       "keywords": ["taiga", "project-management", "agile", "scrum"],
       "category": "productivity"

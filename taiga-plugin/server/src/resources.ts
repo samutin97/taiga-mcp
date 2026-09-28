@@ -40,6 +40,23 @@ const assigneeUpdate = z
 
 const dueDateUpdate = z.string().optional().describe('ISO date; "" clears it.');
 
+/**
+ * Sprint of a task or an issue, resolved to `milestone` the same way as a
+ * story's. Taiga itself keeps a story's task in the story's sprint and
+ * overrides whatever is sent (TaskViewSet.pre_save), so on such a task this
+ * only takes effect through the story — crud.ts says so in a `hint`.
+ */
+const sprintField = z.string().optional().describe("Sprint name.");
+const sprintUpdate = z.string().optional().describe('Sprint name; "" clears it.');
+
+// Taiga's own "client requirement" / "team requirement" flags, the same pair
+// on stories and epics (both models carry them, both validators accept them).
+// The names say it all, so no description is spent on them.
+const requirementFields = {
+  client_requirement: z.boolean().optional(),
+  team_requirement: z.boolean().optional(),
+};
+
 // Verified live: Taiga stores points as a per-role map, not a scalar —
 // sending a bare value straight through crashes the server. A bare string
 // goes to the project's primary estimation role (lowest `order`); an object
@@ -81,6 +98,7 @@ export const USER_STORY: ResourceDef = {
       .describe("Epic subject to link this story to; empty string unlinks it."),
     tags: tagsField,
     due_date: z.string().optional().describe("ISO date, e.g. 2026-09-30."),
+    ...requirementFields,
   },
   updateFields: {
     subject: z.string().optional(),
@@ -99,6 +117,7 @@ export const USER_STORY: ResourceDef = {
       .describe("Position in the backlog; lower comes first."),
     assigned_users: z.array(z.string()).optional()
       .describe("Full names of everyone assigned; replaces the list, [] clears it."),
+    ...requirementFields,
   },
   lookups: [
     { field: "status", kind: "userstory-status" },
@@ -129,6 +148,7 @@ export const TASK: ResourceDef = {
     user_story: z.number().optional().describe("Parent story #ref."),
     status: z.string().optional(),
     assigned_to: z.string().optional(),
+    sprint: sprintField,
     tags: tagsField,
     due_date: z.string().optional(),
     estimate: z.number().optional().describe("Estimate in points; written to the «Оценка» field."),
@@ -141,6 +161,7 @@ export const TASK: ResourceDef = {
     user_story: z.number().optional().describe("Parent story #ref."),
     status: z.string().optional(),
     assigned_to: assigneeUpdate,
+    sprint: sprintUpdate,
     tags: tagsField,
     due_date: dueDateUpdate,
     is_blocked: z.boolean().optional(),
@@ -179,6 +200,7 @@ export const ISSUE: ResourceDef = {
     severity: z.string().optional(),
     type: z.string().optional(),
     assigned_to: z.string().optional(),
+    sprint: sprintField,
     tags: tagsField,
     due_date: z.string().optional(),
   },
@@ -190,6 +212,7 @@ export const ISSUE: ResourceDef = {
     severity: z.string().optional(),
     type: z.string().optional(),
     assigned_to: assigneeUpdate,
+    sprint: sprintUpdate,
     tags: tagsField,
     due_date: dueDateUpdate,
   },
@@ -227,6 +250,7 @@ export const EPIC: ResourceDef = {
     status: z.string().optional(),
     assigned_to: z.string().optional(),
     tags: tagsField,
+    ...requirementFields,
   },
   updateFields: {
     subject: z.string().optional(),
@@ -235,6 +259,7 @@ export const EPIC: ResourceDef = {
     status: z.string().optional(),
     assigned_to: assigneeUpdate,
     tags: tagsField,
+    ...requirementFields,
   },
   lookups: [
     { field: "status", kind: "epic-status" },

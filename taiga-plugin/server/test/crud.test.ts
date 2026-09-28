@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerCrudTools } from "../src/tools/crud.js";
-import { TASK, USER_STORY } from "../src/resources.js";
+import { EPIC, ISSUE, TASK, USER_STORY } from "../src/resources.js";
 import { resetAttributeCache } from "../src/custom-attributes.js";
+import { startClient } from "./helpers/mcp-client.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<{
   isError?: boolean;
@@ -306,6 +307,220 @@ describe("taiga_userstory_update/taiga_task_update: подсказка при с
     expect(result.isError).toBeUndefined();
     const json = JSON.parse(result.content[0].text);
     expect(json.hint).toMatch(/taiga_link/);
+  });
+});
+
+const MILESTONES_ROUTE = "/milestones?project=1&page_size=1000";
+
+/**
+ * fakeCtx plus what a plain create/update touches: `post`/`patch` answer
+ * with the row Taiga would send back (`response`, so a test can say which
+ * milestone Taiga actually kept), the project's two sprints are listed for
+ * resolveSprint, and `resolveRef` turns the story #ref 8 into id 20.
+ */
+function fakeWriteCtx(response: Record<string, unknown> = {}) {
+  const base = fakeCtx({
+    [MILESTONES_ROUTE]: [
+      { id: 5, name: "Sprint 1" },
+      { id: 6, name: "Sprint 2" },
+    ],
+  });
+  const client = {
+    ...base.client,
+    post: vi.fn(async (_path: string, _body: Record<string, unknown>) => ({ id: 999, ...response })),
+    patch: vi.fn(async (_path: string, id: number, _changes: Record<string, unknown>) => ({
+      id,
+      ...response,
+    })),
+  };
+  const cache = {
+    ...base.cache,
+    resolveRef: vi.fn(async (_projectId: number, kind: string, ref: number) => {
+      if (kind !== "us" || ref !== 8) throw new Error(`unexpected resolveRef ${kind} #${ref}`);
+      return 20;
+    }),
+  };
+  return { ...base, client, cache };
+}
+
+/** `properties` of one tool's input schema, as tools/list gives it to the model. */
+async function schemaProperties(name: string): Promise<Record<string, unknown>> {
+  const { tools } = await (await startClient()).listTools();
+  const tool = tools.find((t) => t.name === name);
+  if (!tool) throw new Error(`no tool ${name}`);
+  return (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
+}
+
+describe("client_requirement/team_requirement у историй и эпиков", () => {
+  it.each([
+    "taiga_userstory_create", "taiga_userstory_update", "taiga_epic_create", "taiga_epic_update",
+  ])("%s объявляет оба флага булевыми", async (name) => {
+    const props = await schemaProperties(name);
+    expect(props.client_requirement).toEqual({ type: "boolean" });
+    expect(props.team_requirement).toEqual({ type: "boolean" });
+  });
+
+  it.each([USER_STORY, EPIC])("taiga_$name_create передаёт оба флага в Taiga, false тоже", async (def) => {
+    const ctx = fakeWriteCtx();
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, def);
+    const create = server.handlers.get(`taiga_${def.name}_create`)!;
+
+    const result = await create({ subject: "Вход по SSO", client_requirement: true, team_requirement: false });
+
+    expect(result.isError).toBeUndefined();
+    expect(ctx.client.post).toHaveBeenCalledTimes(1);
+    const [path, payload] = ctx.client.post.mock.calls[0];
+    expect(path).toBe(def.path);
+    expect(payload).toMatchObject({ client_requirement: true, team_requirement: false });
+  });
+
+  it.each([USER_STORY, EPIC])("taiga_$name_update меняет только переданные флаги", async (def) => {
+    const ctx = fakeWriteCtx();
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, def);
+    const update = server.handlers.get(`taiga_${def.name}_update`)!;
+
+    const result = await update({ id: 20, client_requirement: false, team_requirement: true });
+
+    expect(result.isError).toBeUndefined();
+    expect(ctx.client.patch).toHaveBeenCalledWith(def.path, 20, {
+      client_requirement: false,
+      team_requirement: true,
+    });
+  });
+});
+
+describe("sprint у задач и issue", () => {
+  it.each([
+    "taiga_task_create", "taiga_task_update", "taiga_issue_create", "taiga_issue_update",
+  ])("%s объявляет sprint строкой", async (name) => {
+    const props = await schemaProperties(name);
+    expect(props.sprint).toMatchObject({ type: "string" });
+  });
+
+  it.each([TASK, ISSUE])("taiga_$name_create резолвит имя спринта в milestone", async (def) => {
+    const ctx = fakeWriteCtx();
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, def);
+    const create = server.handlers.get(`taiga_${def.name}_create`)!;
+
+    const result = await create({ subject: "Починить вход", sprint: " sprint 2 " });
+
+    expect(result.isError).toBeUndefined();
+    const [, payload] = ctx.client.post.mock.calls[0];
+    expect(payload.milestone).toBe(6);
+    // Taiga's serializer does not know `sprint` and would drop it silently.
+    expect(payload).not.toHaveProperty("sprint");
+  });
+
+  it.each([TASK, ISSUE])("taiga_$name_update: имя спринта → milestone", async (def) => {
+    const ctx = fakeWriteCtx();
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, def);
+    const update = server.handlers.get(`taiga_${def.name}_update`)!;
+
+    const result = await update({ id: 30, sprint: "Sprint 1" });
+
+    expect(result.isError).toBeUndefined();
+    expect(ctx.client.patch).toHaveBeenCalledWith(def.path, 30, { milestone: 5 });
+  });
+
+  it.each([TASK, ISSUE])('taiga_$name_update: sprint "" снимает спринт, не читая список', async (def) => {
+    const ctx = fakeWriteCtx();
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, def);
+    const update = server.handlers.get(`taiga_${def.name}_update`)!;
+
+    const result = await update({ id: 30, sprint: "" });
+
+    expect(result.isError).toBeUndefined();
+    expect(ctx.client.patch).toHaveBeenCalledWith(def.path, 30, { milestone: null });
+    expect(ctx.client.list).not.toHaveBeenCalled();
+  });
+
+  it.each([TASK, ISSUE])("taiga_$name_create с неизвестным спринтом ничего не создаёт", async (def) => {
+    const ctx = fakeWriteCtx();
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, def);
+    const create = server.handlers.get(`taiga_${def.name}_create`)!;
+
+    const result = await create({ subject: "Починить вход", sprint: "Sprint 9" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/Sprint 1, Sprint 2/);
+    expect(ctx.client.post).not.toHaveBeenCalled();
+  });
+});
+
+// Taiga's TaskViewSet.pre_save copies the story's milestone onto its task
+// on every create and update, overriding whatever milestone was sent. The
+// tool relies on that for `user_story` alone and only speaks up when a
+// requested sprint lost to it.
+describe("taiga_task_create/taiga_task_update: спринт задачи истории", () => {
+  it("с одним user_story не шлёт milestone и не читает историю — спринт ставит Taiga", async () => {
+    const ctx = fakeWriteCtx({ user_story: 20, milestone: 5 });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const create = server.handlers.get("taiga_task_create")!;
+
+    const result = await create({ subject: "Вёрстка формы", user_story: 8 });
+
+    expect(result.isError).toBeUndefined();
+    const [, payload] = ctx.client.post.mock.calls[0];
+    expect(payload.user_story).toBe(20);
+    expect(payload).not.toHaveProperty("milestone");
+    expect(ctx.client.get).not.toHaveBeenCalled();
+    expect(ctx.client.list).not.toHaveBeenCalled();
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("hint");
+  });
+
+  it("возвращает hint, когда Taiga оставила задаче спринт истории вместо запрошенного", async () => {
+    const ctx = fakeWriteCtx({ user_story: 20, milestone: 5 });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const create = server.handlers.get("taiga_task_create")!;
+
+    const result = await create({ subject: "Вёрстка формы", user_story: 8, sprint: "Sprint 2" });
+
+    expect(result.isError).toBeUndefined();
+    expect(ctx.client.post.mock.calls[0][1].milestone).toBe(6);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(/taiga_userstory_update/);
+  });
+
+  it("не возвращает hint, когда запрошенный спринт совпал со спринтом истории", async () => {
+    const ctx = fakeWriteCtx({ user_story: 20, milestone: 5 });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const create = server.handlers.get("taiga_task_create")!;
+
+    const result = await create({ subject: "Вёрстка формы", user_story: 8, sprint: "Sprint 1" });
+
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("hint");
+  });
+
+  it("update: hint, когда задача истории осталась в спринте истории", async () => {
+    const ctx = fakeWriteCtx({ user_story: 20, milestone: 5 });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const update = server.handlers.get("taiga_task_update")!;
+
+    const result = await update({ id: 30, sprint: "" });
+
+    expect(result.isError).toBeUndefined();
+    expect(ctx.client.patch).toHaveBeenCalledWith("/tasks", 30, { milestone: null });
+    expect(JSON.parse(result.content[0].text).hint).toMatch(/taiga_userstory_update/);
+  });
+
+  it("update: у задачи без истории спринт меняется без подсказок", async () => {
+    const ctx = fakeWriteCtx({ user_story: null, milestone: 6 });
+    const server = fakeServer();
+    registerCrudTools(server as never, ctx as never, TASK);
+    const update = server.handlers.get("taiga_task_update")!;
+
+    const result = await update({ id: 30, sprint: "Sprint 2" });
+
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("hint");
   });
 });
 

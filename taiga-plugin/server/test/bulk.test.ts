@@ -96,3 +96,79 @@ describe("taiga_bulk_create: points_by_role на истории с поинта�
     expect(json.created[0].points_by_role).toEqual({ Front: 5, Back: 3 });
   });
 });
+
+// `sprint` used to be a user-story-only field here, so a task or issue item
+// carrying it landed in `failed`. Now all three bulk resources take it, with
+// the same resolution to `milestone` as the single create tools — and a task
+// of a story says so when Taiga kept the story's sprint instead.
+describe("taiga_bulk_create: sprint у задач и issue", () => {
+  function fakeSprintCtx(row: Record<string, unknown>) {
+    const MILESTONES_ROUTE = "/milestones?project=1&page_size=1000";
+    const client = {
+      get: vi.fn(async (path: string) => {
+        throw new Error(`unexpected GET ${path}`);
+      }),
+      list: vi.fn(async (path: string, params?: Record<string, unknown>) => {
+        const query = new URLSearchParams();
+        for (const [k, v] of Object.entries(params ?? {})) {
+          if (v !== undefined) query.set(k, String(v));
+        }
+        const key = `${path}?${query.toString()}`;
+        if (key !== MILESTONES_ROUTE) throw new Error(`unexpected LIST ${key}`);
+        const items = [
+          { id: 5, name: "Sprint 1" },
+          { id: 6, name: "Sprint 2" },
+        ];
+        return { items, total: 2, page: 1, hasMore: false };
+      }),
+      post: vi.fn(async (_path: string, body: Record<string, unknown>) => ({
+        id: 999,
+        ref: 42,
+        subject: body.subject,
+        ...row,
+      })),
+      patch: vi.fn(async () => ({})),
+      remove: vi.fn(async () => {}),
+    };
+    const cache = {
+      resolveProject: vi.fn(async () => 1),
+      labelMap: vi.fn(async () => new Map()),
+      valueMap: vi.fn(async () => new Map()),
+      resolveRef: vi.fn(async () => 20),
+    };
+    return { client, cache, options: { readOnly: false, voiceGuard: "off" as const } };
+  }
+
+  it.each(["task", "issue"])("%s: sprint резолвится в milestone, элемент создаётся", async (resource) => {
+    const ctx = fakeSprintCtx({ milestone: 6 });
+    const server = fakeServer();
+    registerBulkTool(server as never, ctx as never);
+    const create = server.handlers.get("taiga_bulk_create")!;
+
+    const result = await create({ resource, items: [{ subject: "Со спринтом", sprint: "Sprint 2" }] });
+
+    const json = JSON.parse(result.content[0].text);
+    expect(json.failed).toEqual([]);
+    expect(json.created).toHaveLength(1);
+    expect(json.created[0]).not.toHaveProperty("hint");
+    const [, payload] = ctx.client.post.mock.calls[0];
+    expect(payload.milestone).toBe(6);
+    expect(payload).not.toHaveProperty("sprint");
+  });
+
+  it("task истории: hint у элемента, когда Taiga оставила спринт истории", async () => {
+    const ctx = fakeSprintCtx({ user_story: 20, milestone: 5 });
+    const server = fakeServer();
+    registerBulkTool(server as never, ctx as never);
+    const create = server.handlers.get("taiga_bulk_create")!;
+
+    const result = await create({
+      resource: "task",
+      items: [{ subject: "Вёрстка формы", user_story: 8, sprint: "Sprint 2" }],
+    });
+
+    const json = JSON.parse(result.content[0].text);
+    expect(json.failed).toEqual([]);
+    expect(json.created[0].hint).toMatch(/taiga_userstory_update/);
+  });
+});
