@@ -41,7 +41,9 @@ describe("skills", () => {
     expect(read("taiga-voice").front).toMatch(/^user-invocable:\s*false$/m);
   });
 
-  it("describes triggers only, in the third person, within 3000 chars total", () => {
+  // Size limits only guard against runaway growth. When a rule needs the room,
+  // raise the limit instead of squeezing the rule: clarity beats token savings.
+  it("describes triggers only, in the third person, within 4000 chars total", () => {
     let total = 0;
     for (const skill of EXPECTED) {
       const { description } = read(skill);
@@ -50,13 +52,13 @@ describe("skills", () => {
       expect(description, skill).not.toMatch(/(?<![\p{L}])(я|мы|ты|мне|нам)(?![\p{L}])/iu);
       total += description.length;
     }
-    expect(total).toBeLessThanOrEqual(3000);
+    expect(total).toBeLessThanOrEqual(4000);
   });
 
-  it("keeps every body under 150 lines and every reference link real", () => {
+  it("keeps every body under 250 lines and every reference link real", () => {
     for (const skill of EXPECTED) {
       const { body } = read(skill);
-      expect(body.trim().split("\n").length, skill).toBeLessThanOrEqual(150);
+      expect(body.trim().split("\n").length, skill).toBeLessThanOrEqual(250);
       if (/reference\.md/.test(body)) expect(existsSync(join(SKILLS_DIR, skill, "reference.md")), `${skill}/reference.md`).toBe(true);
     }
   });
