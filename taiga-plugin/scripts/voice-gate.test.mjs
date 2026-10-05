@@ -54,6 +54,25 @@ test("soft: «Как <роль>, я хочу…» no longer flagged; unrelated s
   assert.deepEqual(ids(checkText("В рамках данной задачи необходимо обеспечить")), ["bureaucratese", "bureaucratese"]);
 });
 
+test("soft: figurative words and slang where a technical word exists", () => {
+  for (const text of [
+    "Пояс сервера уважает только formatDate",
+    "Остальные места зовут toLocaleString()",
+    "Поле отдаёт наружу время браузера",
+    "Тест зелёный, а время сдвинуто",
+    "PeriodField продублирован байт в байт",
+    "Заготовка «через пять минут» уходит в прошлое",
+    "Период лежит в адресе страницы",
+  ]) {
+    assert.deepEqual(ids(checkText(text)), ["figurative"], text);
+  }
+  assert.equal(
+    checkText("Пояс сервера учитывает только formatDate. Остальные места вызывают toLocaleString() и отдают в API время браузера, тест проходит. Уважаемые коллеги, вызов работает.").length,
+    0,
+    "technical wording, «вызов» and «уважаемые» are not figurative",
+  );
+});
+
 test("soft: rubrics prefixed with a list marker or a quote, and the widened emoji class", () => {
   assert.deepEqual(ids(checkText("- Контекст: x")), ["heading-label"]);
   assert.deepEqual(ids(checkText("1. Задача: y")), ["heading-label"]);
